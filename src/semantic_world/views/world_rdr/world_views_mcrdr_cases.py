@@ -21,3 +21,6 @@ corner_case_59112619694893607910753808758642808601 = CaseFactoryMetaData(factory
 corner_case_10840634078579061471470540436169882059 = CaseFactoryMetaData(factory_method=ViewTestCase.get_kitchen_world, factory_idx=None, case_conf=None, scenario=ViewTestCase.test_fridge_view)
 
 
+corner_case_192830222825406162866735339839935932811 = CaseFactoryMetaData(factory_method=ViewTestCase.get_procthor_world, factory_idx=None, case_conf=None, scenario=ViewTestCase.test_chair_view)
+
+

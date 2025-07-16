@@ -61,6 +61,10 @@ class Drawer(Components):
 class Cupboard(Furniture):
     ...
 
+@dataclass(unsafe_hash=True)
+class Chair(Furniture):
+    body: Body
+
 
 ############################### subclasses to Cupboard
 @dataclass(unsafe_hash=True)

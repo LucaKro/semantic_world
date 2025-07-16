@@ -73,7 +73,11 @@ class VizMarkerPublisher:
 
                 if isinstance(collision, Mesh):
                     msg.type = Marker.MESH_RESOURCE
-                    msg.mesh_resource = "file://" + collision.filename
+                    if not collision.filename.startswith("file://"):
+                        msg.mesh_resource = "file://" + collision.filename
+                    else:
+                        msg.mesh_resource = collision.filename
+                    msg.mesh_resource = msg.mesh_resource.replace("file://", "file:///home/luca-krohm/work/semantic_world/resources/procthor_environments/dataset_house_21/")  # Ensure forward slashes for ROS compatibility
                     msg.scale = Vector3(x=float(collision.scale.x), y=float(collision.scale.y), z=float(collision.scale.z))
                     msg.mesh_use_embedded_materials = True
                 elif isinstance(collision, Cylinder):

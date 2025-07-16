@@ -10,6 +10,7 @@ try:
     from ripple_down_rules.user_interface.gui import RDRCaseViewer
     from PyQt6.QtWidgets import QApplication
 except ImportError as e:
+    raise e
     logging.debug(e)
     QApplication = None
     RDRCaseViewer = None
@@ -46,6 +47,7 @@ class ViewTestCase(unittest.TestCase):
     urdf_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "resources", "urdf")
     kitchen = os.path.join(urdf_dir, "kitchen-small.urdf")
     apartment = os.path.join(urdf_dir, "apartment.urdf")
+    procthor = "/home/luca-krohm/work/semantic_world/resources/procthor_environments/dataset_house_21/dataset_house_21_decomposed.urdf"
     main_dir = os.path.join(os.path.dirname(__file__), '..', '..')
     views_dir = os.path.join(main_dir, "src/semantic_world/views")
     views_rdr_model_name = "world_rdr"
@@ -59,6 +61,7 @@ class ViewTestCase(unittest.TestCase):
     def setUpClass(cls):
         cls.kitchen_world = cls.get_kitchen_world()
         cls.apartment_world = cls.get_apartment_world()
+        cls.procthor_world = cls.get_procthor_world()
         if RDRCaseViewer is not None and QApplication is not None and cls.use_gui:
             cls.app = QApplication(sys.argv)
             cls.viewer = RDRCaseViewer()
@@ -104,6 +107,12 @@ class ViewTestCase(unittest.TestCase):
 
     def test_fridge_view(self):
         self.fit_rules_for_a_view_in_kitchen(Fridge, scenario=self.test_fridge_view, update_existing_views=False)
+
+    def test_chair_view(self):
+        """
+        Test the Procthor view.
+        """
+        self.fit_rules_for_a_view_in_procthor(Chair, scenario=self.test_chair_view)
 
     @unittest.skip("Skipping test for wardrobe view as it requires user input")
     def test_wardrobe_view(self):
@@ -162,6 +171,16 @@ class ViewTestCase(unittest.TestCase):
         world.validate()
         return world
 
+    @classmethod
+    def get_procthor_world(cls) -> World:
+        """
+        Return the Procthor world parsed from the URDF file.
+        """
+        parser = URDFParser(cls.procthor)
+        world = parser.parse()
+        world.validate()
+        return world
+
     def fit_rules_for_a_view_in_kitchen(self, view_type: Type[View], update_existing_views: bool = False,
                                         scenario: Optional[Callable] = None) -> None:
         """
@@ -173,6 +192,18 @@ class ViewTestCase(unittest.TestCase):
         """
         self.fit_rules_for_a_view_and_assert(self.kitchen_world, view_type, update_existing_views=update_existing_views,
                                              world_factory=self.get_kitchen_world, scenario=scenario)
+
+    def fit_rules_for_a_view_in_procthor(self, view_type: Type[View], update_existing_views: bool = False,
+                                        scenario: Optional[Callable] = None) -> None:
+        """
+        Template method to test a specific view type in the kitchen world.
+
+        :param view_type: The type of view to fit and assert.
+        :param update_existing_views: If True, existing views will be updated with new rules, else they will be skipped.
+        :param scenario: Optional callable that represents the test method or scenario that is being executed.
+        """
+        self.fit_rules_for_a_view_and_assert(self.procthor_world, view_type, update_existing_views=update_existing_views,
+                                             world_factory=self.get_procthor_world, scenario=scenario)
 
     def fit_rules_for_a_view_in_apartment(self, view_type: Type[View], update_existing_views: bool = False,
                                           scenario: Optional[Callable] = None) -> None:
