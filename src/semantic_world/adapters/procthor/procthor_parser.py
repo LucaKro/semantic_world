@@ -9,6 +9,7 @@ from typing import Optional
 
 import numpy as np
 import rclpy
+from ormatic.utils import drop_database
 from random_events.interval import closed
 from random_events.polytope import Polytope
 from random_events.product_algebra import SimpleEvent
@@ -26,6 +27,7 @@ from semantic_world.orm.ormatic_interface import (
     ViewDAO,
     ConnectionDAO,
     PrefixedNameDAO,
+    Base,
 )
 from semantic_world.prefixed_name import PrefixedName
 from semantic_world.spatial_types.spatial_types import (
@@ -275,8 +277,9 @@ class ProcTHORParser:
             door_transforms.append(door_transform)
 
         room_numbers = [w["id"].split("|")[1] for w in wall.walls]
+        wall_corners = [w["id"].split("|")[2:] for w in wall.walls][0]
         wall_name = PrefixedName(
-            f"wall{id(wall.walls[0])}_room{room_numbers[0]}_room{room_numbers[1]}"
+            f"wall_{wall_corners[0]}_{wall_corners[1]}_{wall_corners[2]}_{wall_corners[3]}_room{room_numbers[0]}_room{room_numbers[1]}"
         )
 
         wall_scale, wall_transform = self.get_polygon_scale_and_center(
@@ -377,12 +380,15 @@ def get_world_by_prefixed_name(
 
 
 def main():
-
     semantic_world_database_uri = os.environ.get("SEMANTIC_WORLD_DATABASE_URI")
 
     # Create database engine and session
     engine = create_engine(f"mysql+pymysql://{semantic_world_database_uri}")
     session = Session(engine)
+
+    # update schema
+    drop_database(engine)
+    Base.metadata.create_all(engine)
 
     parser = ProcTHORParser(
         "../../../../resources/procthor_json/house_987654321.json", session
@@ -395,7 +401,7 @@ def main():
 
     p = VizMarkerPublisher(world, node)
 
-    time.sleep(100)
+    time.sleep(1000)
     p._stop_publishing()
     rclpy.shutdown()
 
