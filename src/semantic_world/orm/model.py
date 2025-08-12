@@ -22,6 +22,7 @@ import trimesh.exchange.stl
 
 @dataclass
 class WorldMapping(AlternativeMapping[World]):
+    root: Body
     bodies: List[Body]
     connections: List[Connection]
     views: List[View]
@@ -29,7 +30,7 @@ class WorldMapping(AlternativeMapping[World]):
 
     @classmethod
     def create_instance(cls, obj: World):
-        return cls(obj.bodies, obj.connections, obj.views, list(obj.degrees_of_freedom))
+        return cls(obj.root, obj.bodies, obj.connections, obj.views, list(obj.degrees_of_freedom))
 
     def create_from_dao(self) -> World:
         result = World()

@@ -1,14 +1,37 @@
 import json
+import math
+import os
+import time
 from dataclasses import dataclass, field
 from typing import List, Dict, Tuple
+# Python
+from typing import Optional
 
 import numpy as np
+import rclpy
+from random_events.interval import closed
 from random_events.polytope import Polytope
+from random_events.product_algebra import SimpleEvent
 from random_events.variable import Continuous
+from sqlalchemy import create_engine
+from sqlalchemy import select, exists, and_, or_
+from sqlalchemy.orm import Session
 
-from semantic_world.geometry import BoundingBoxCollection, Scale
+from semantic_world.adapters.viz_marker import VizMarkerPublisher
+from semantic_world.connections import FixedConnection
+from semantic_world.geometry import Scale, BoundingBoxCollection
+from semantic_world.orm.ormatic_interface import (
+    WorldMappingDAO,
+    BodyDAO,
+    ViewDAO,
+    ConnectionDAO,
+    PrefixedNameDAO,
+)
 from semantic_world.prefixed_name import PrefixedName
-from semantic_world.spatial_types.spatial_types import TransformationMatrix, Point3
+from semantic_world.spatial_types.spatial_types import (
+    TransformationMatrix,
+    Point3,
+)
 from semantic_world.variables import SpatialVariables
 from semantic_world.views.factories import (
     DoorFactory,
@@ -17,6 +40,7 @@ from semantic_world.views.factories import (
     HandleFactory,
     Direction,
 )
+from semantic_world.world import World
 from semantic_world.world_entity import Body, Region
 
 
@@ -30,16 +54,19 @@ class Wall:
 class ProcTHORParser:
     file_path: str
 
-    def import_room(self, room) -> Tuple[RoomFactory, TransformationMatrix]:
+    session: Session
+
+    def import_room(self, room) -> Tuple[World, TransformationMatrix]:
         room_name = room["roomType"]
         room_id = room["id"].split("|")[-1]
         room_name = f"{room_name}_{room_id}"
         room_name = PrefixedName(room_name)
+        reference_frame = Body(name=room_name)
 
-        room_polytope = room["floorPolygon"]
+        room_polytopes = room["floorPolygon"]
 
         room_polytope: List[Point3] = [
-            Point3(v["x"], v["y"], v["z"]) for v in room_polytope
+            Point3(v["x"], v["y"], v["z"]) for v in room_polytopes
         ]
 
         polytope_length = len(room_polytope)
@@ -54,22 +81,58 @@ class ProcTHORParser:
             for v in room_polytope
         ]
 
-        room_factory = RoomFactory(name=room_name, polytope_corners=centered_polytope)
+        min_height = min(v.y.to_np() for v in room_polytope)
+        max_height = max(v.y.to_np() for v in room_polytope)
+
+        points_2d = np.array([[p.x.to_np(), p.z.to_np()] for p in centered_polytope])
+        polytope = Polytope.from_2d_points(points_2d)
+        region_event = polytope.maximum_inner_box().to_simple_event().as_composite_set()
+
+        region_event = region_event.update_variables(
+            {
+                Continuous("x_0"): SpatialVariables.x.value,
+                Continuous("x_1"): SpatialVariables.y.value,
+            }
+        )
+        region_event.fill_missing_variables([SpatialVariables.z.value])
+        floor_event = SimpleEvent(
+            {
+                SpatialVariables.z.value: closed(min_height - 0.01, max_height + 0.01),
+            }
+        ).as_composite_set()
+        floor_event.fill_missing_variables(SpatialVariables.xz)
+
+        region_event = region_event & floor_event
+
+        region_bb_collection = BoundingBoxCollection.from_event(region_event)
+
+        region_shapes = region_bb_collection.as_shapes(reference_frame=reference_frame)
+
+        region = Region(
+            name=PrefixedName(room_name.name + "_region"),
+            areas=region_shapes,
+            reference_frame=reference_frame,
+        )
+
+        room_factory = RoomFactory(name=room_name, region=region)
 
         transform = TransformationMatrix.from_xyz_rpy(
             center[0], center[1], center[2], 0, 0, 0
         )
 
-        return room_factory, transform
+        return room_factory.create(), transform
 
-    def import_object(self, parent_body, obj):
-        body_name = obj["id"].replace("|", "_")
-
+    def import_object(self, obj) -> Tuple[World, TransformationMatrix]:
         asset_id = obj["assetId"]
 
-        orm_query_object_using_asset_id = ...
+        body_world: World = get_world_by_prefixed_name(self.session, name=asset_id)
 
-        transform = TransformationMatrix.from_xyz_rpy(
+        if body_world is None:
+            body_world = World(name=asset_id)
+            body_world_root = Body(name=PrefixedName(asset_id))
+            body_world.add_body(body_world_root)
+
+        body_transform = TransformationMatrix.from_xyz_rpy(
             obj["position"]["x"],
             obj["position"]["y"],
             obj["position"]["z"],
@@ -79,14 +142,20 @@ class ProcTHORParser:
         )
 
         for child in obj.get("children", {}):
-            self.import_object(body_name, child)
+            child_world, child_transform = self.import_object(child)
+            child_connection = FixedConnection(
+                parent=body_world.root,
+                child=child_world.root,
+                origin_expression=child_transform,
+            )
+            body_world.merge_world(child_world, child_connection)
 
-        return
+        return body_world, body_transform
 
     @staticmethod
     def group_walls_by_polygon(
         remaining_walls: List[Dict],
-    ) -> Tuple[List[Wall], List[Dict]]:
+    ) -> List[Wall]:
         """
         Groups walls with identical polygons (order-invariant) into pairs -> Wall([w1, w2]).
         Returns (paired_walls, leftovers) where leftovers are any unpaired walls.
@@ -94,35 +163,29 @@ class ProcTHORParser:
 
         def polygon_key(poly):
             # Treat as a set of points so ordering doesn’t matter
-            return frozenset((p["x"], p["y"], p.get("z", 0)) for p in poly)
+            return frozenset((p["x"], p["y"], p["z"]) for p in poly)
 
         groups: Dict[frozenset, List[Dict]] = {}
         for w in remaining_walls:
             key = polygon_key(w.get("polygon", []))
             groups.setdefault(key, []).append(w)
 
-        paired: List["Wall"] = []
-        leftovers: List[Dict] = []
-
+        paired: List[Wall] = []
         for walls in groups.values():
             i = 0
             while i + 1 < len(walls):
                 paired.append(Wall(walls=[walls[i], walls[i + 1]]))
                 i += 2
             if i < len(walls):
-                leftovers.append(walls[i])
+                raise AssertionError(
+                    "Apparently there are cases were there really is only one wall, not two with the same corners. This case may need to be handled now"
+                )
 
-        return paired, leftovers
+        return paired
 
     def group_doors_with_walls(
         self, doors: List[Dict], walls: List[Dict]
     ) -> List[Wall]:
-        """
-        Returns:
-          - door_groups: list of {'door': <door>, 'walls': [<wall0?>, <wall1?>], 'wallIds': [id0?, id1?]}
-          - remaining_walls: walls not referenced by any door
-        """
-
         walls_by_id = {w["id"]: w for w in walls}
         used_wall_ids = set()
         door_groups = []
@@ -137,76 +200,89 @@ class ProcTHORParser:
                 if w:
                     found.append(w)
                     used_wall_ids.add(wid)
-            door_groups.append(Wall(door=d, walls=found))
+            door_groups.append(Wall(doors=[d], walls=found))
 
         remaining_walls = [w for w in walls if w["id"] not in used_wall_ids]
 
-        paired_walls, unpaired_walls = self.group_walls_by_polygon(remaining_walls)
+        paired_walls = self.group_walls_by_polygon(remaining_walls)
 
         door_groups.extend(paired_walls)
 
-        assert (
-            len(unpaired_walls) == 0
-        ), "Apparently there are cases were there really is only one wall, not two with the same corners. This case may need to be handled now"
-
-        return door_groups, paired_walls
+        return door_groups
 
     @staticmethod
-    def polygon_scale_and_center(polygon):
-        xs = [p["x"] for p in polygon]
-        ys = [p["y"] for p in polygon]
-        zs = [p["z"] for p in polygon]
+    def get_polygon_scale_and_center(polygon):
+        xz_sets = {}
+        for p in polygon:
+            key = (float(p["x"]), float(p["z"]))
+            xz_sets.setdefault(key, []).append(float(p["y"]))
 
-        scale_x = max(xs) - min(xs)
-        scale_y = max(ys) - min(ys)
-        scale_z = max(zs) - min(zs)
+        if len(xz_sets) != 2:
+            raise ValueError("Expected exactly two unique (x,z) positions.")
 
-        scale = Scale(scale_x, scale_y, scale_z)
+        (x1, z1), y_coords1 = list(xz_sets.items())[0]
+        (x2, z2), y_coords2 = list(xz_sets.items())[1]
 
-        center_x = (max(xs) + min(xs)) / 2
-        center_y = (max(ys) + min(ys)) / 2
-        center_z = (max(zs) + min(zs)) / 2
+        # Height from one vertical pair
+        min_y, max_y = min(min(y_coords1, y_coords2)), max(max(y_coords1, y_coords2))
+        height = max_y - min_y
 
-        position = Point3(center_x, center_y, center_z)
+        # Horizontal length
+        dx, dz = x2 - x1, z2 - z1
+        width = math.hypot(dx, dz)
 
-        return position, scale
+        # Center
+        cx = (x1 + x2) * 0.5
+        cy = (min_y + max_y) * 0.5
+        cz = (z1 + z2) * 0.5
 
-    def import_walls_with_doors(self, wall: Wall) -> Tuple[WallFactory, TransformationMatrix]:
+        # Yaw of outward normal (Unity LH): n = up × along = (dz, 0, -dx)
+        yaw = math.atan2(dz, -dx)
+
+        thickness = 0.02
+        scale = Scale(x=width, y=height, z=thickness)
+        transform = TransformationMatrix.from_xyz_rpy(cx, cy, cz, 0.0, 0.0, yaw)
+        return scale, transform
+
+    def import_walls(self, wall: Wall) -> Tuple[World, TransformationMatrix]:
 
         door_factories = []
         door_transforms = []
 
-        for door in wall.walls:
-
+        for door in wall.doors:
             room_numbers = door["id"].split("|")[1:]
 
-            door_name = PrefixedName(f"{door["assetId"]}_room{room_numbers[0]}_room{room_numbers[1]}")
-            handle_name = PrefixedName(f"{door["assetId"]}_room{room_numbers[0]}_room{room_numbers[1]}_handle")
+            door_name = PrefixedName(
+                f"{door["assetId"]}_room{room_numbers[0]}_room{room_numbers[1]}"
+            )
+            handle_name = PrefixedName(
+                f"{door["assetId"]}_room{room_numbers[0]}_room{room_numbers[1]}_handle"
+            )
 
-            door_position, door_scale = self.polygon_scale_and_center(door["holePolygon"])
+            door_scale, door_transform = self.get_polygon_scale_and_center(
+                door["holePolygon"]
+            )
 
             # I think a double door factory makes sense here, since it allows us to make assumptions about joints, scales, positions etc here
-            handle_direction = Direction.Y
             door_factory = DoorFactory(
                 name=door_name,
                 scale=door_scale,
                 handle_factory=HandleFactory(name=handle_name),
-                handle_direction=handle_direction,
-            )
-
-            door_transform = TransformationMatrix.from_xyz_rpy(
-                door_position.x, door_position.y, door_position.z, 0, 0, 0
+                handle_direction=Direction.X,
             )
 
             door_factories.append(door_factory)
             door_transforms.append(door_transform)
 
         room_numbers = [w["id"].split("|")[1] for w in wall.walls]
-        wall_name = PrefixedName(f"wall_room{room_numbers[0]}_room{room_numbers[1]}")
+        wall_name = PrefixedName(
+            f"wall{id(wall.walls[0])}_room{room_numbers[0]}_room{room_numbers[1]}"
+        )
 
-        wall_position, wall_scale = self.polygon_scale_and_center(
+        wall_scale, wall_transform = self.get_polygon_scale_and_center(
             wall.walls[0]["polygon"]
         )
+
         wall_factory = WallFactory(
             name=wall_name,
             scale=wall_scale,
@@ -214,41 +290,114 @@ class ProcTHORParser:
             door_transforms=door_transforms,
         )
 
-        wall_transform = TransformationMatrix.from_xyz_rpy(
-            wall_position.x, wall_position.y, wall_position.z, 0, 0, 0
-        )
+        return wall_factory.create(), wall_transform
 
-        return wall_factory, wall_transform
-
-    def parse(self):
+    def parse(self) -> World:
         with open(self.file_path) as f:
             house = json.load(f)
         house_name = self.file_path.split("/")[-1].split(".")[0]
 
+        world = World(name=house_name)
+        world_root = Body(name=PrefixedName(house_name))
+        world.add_body(world_root)
+
         rooms = house["rooms"]
-        room_regions, room_transforms = [], []
         for room in rooms:
-            self.import_room(room)
+            room_world, room_transform = self.import_room(room)
+            room_connection = FixedConnection(
+                parent=world.root,
+                child=room_world.root,
+                origin_expression=room_transform,
+            )
+            world.merge_world(room_world, room_connection)
 
         objects = house["objects"]
         for obj in objects:
-            self.import_object(house_name, obj)
+            obj_world, obj_transform = self.import_object(obj)
+            obj_connection = FixedConnection(
+                parent=world.root, child=obj_world.root, origin_expression=obj_transform
+            )
+            world.merge_world(obj_world, obj_connection)
 
         doors = house["doors"]
         walls = house["walls"]
 
-        door_groups, remaining_walls = self.group_doors_with_walls(doors, walls)
+        walls = self.group_doors_with_walls(doors, walls)
 
-        for door_group in door_groups:
-            self.import_walls_with_doors(door_group)
+        for wall in walls:
+            wall_world, wall_transform = self.import_walls(wall)
+            wall_connection = FixedConnection(
+                parent=world.root,
+                child=wall_world.root,
+                origin_expression=wall_transform,
+            )
+            world.merge_world(wall_world, wall_connection)
 
-        for wall in remaining_walls:
-            self.import_wall(wall)
+        return world
+
+
+def get_world_by_prefixed_name(
+    session: Session, name: str, prefix: Optional[str] = None
+) -> Optional[World]:
+    # Helper to build the name filter for PrefixedNameDAO
+    def pn_filter():
+        base = PrefixedNameDAO.name == name
+        return (
+            and_(base, PrefixedNameDAO.prefix == prefix) if prefix is not None else base
+        )
+
+    # EXISTS subqueries for bodies, views, and connections
+    bodies_exist = exists(
+        select(BodyDAO.id)
+        .join(PrefixedNameDAO, BodyDAO.name)  # WorldEntity.name relationship
+        .where(BodyDAO.worldmappingdao_bodies_id == WorldMappingDAO.id, pn_filter())
+        .limit(1)
+    )
+
+    views_exist = exists(
+        select(ViewDAO.id)
+        .join(PrefixedNameDAO, ViewDAO.name)
+        .where(ViewDAO.worldmappingdao_views_id == WorldMappingDAO.id, pn_filter())
+        .limit(1)
+    )
+
+    conns_exist = exists(
+        select(ConnectionDAO.id)
+        .join(PrefixedNameDAO, ConnectionDAO.name)
+        .where(
+            ConnectionDAO.worldmappingdao_connections_id == WorldMappingDAO.id,
+            pn_filter(),
+        )
+        .limit(1)
+    )
+
+    q = select(WorldMappingDAO).where(or_(bodies_exist, views_exist, conns_exist))
+    world_mapping = session.scalars(q).first()
+    return world_mapping.from_dao() if world_mapping is not None else None
 
 
 def main():
-    parser = ProcTHORParser("../../../../resources/procthor_json/house_987654321.json")
-    parser.parse()
+
+    semantic_world_database_uri = os.environ.get("SEMANTIC_WORLD_DATABASE_URI")
+
+    # Create database engine and session
+    engine = create_engine(f"mysql+pymysql://{semantic_world_database_uri}")
+    session = Session(engine)
+
+    parser = ProcTHORParser(
+        "../../../../resources/procthor_json/house_987654321.json", session
+    )
+    world = parser.parse()
+
+    rclpy.init()
+
+    node = rclpy.create_node("viz_marker")
+
+    p = VizMarkerPublisher(world, node)
+
+    time.sleep(100)
+    p._stop_publishing()
+    rclpy.shutdown()
 
 
 if __name__ == "__main__":

@@ -238,10 +238,6 @@ class DoorFactory(ViewFactory[Door]):
 
     def create(self) -> World:
 
-        assert (
-            self.scale.x < self.scale.y and self.scale.x < self.scale.z
-        ), "A Door must be more wide (y) and high (z) than thick (x)"
-
         x_interval = closed(-self.scale.x / 2, self.scale.x / 2)
         y_interval = closed(-self.scale.y / 2, self.scale.y / 2)
         z_interval = closed(-self.scale.z / 2, self.scale.z / 2)
@@ -492,38 +488,13 @@ class DresserFactory(ViewFactory[Dresser]):
 @dataclass
 class RoomFactory(ViewFactory[Room]):
     name: PrefixedName
-    polytope_corners: List[Point3]
-
+    region: Region
     def create(self) -> World:
-        reference_frame = Body(name=self.name)
-
-        points_2d = np.array([[p[0], p[2]] for p in self.polytope_corners])
-        polytope = Polytope.from_2d_points(points_2d)
-        region_event = polytope.maximum_inner_box().to_simple_event().as_composite_set()
-
-        region_event = region_event.update_variables(
-            {
-                Continuous("x_0"): SpatialVariables.x.value,
-                Continuous("x_1"): SpatialVariables.z.value,
-            }
-        )
-        region_event.fill_missing_variables([SpatialVariables.y.value])
-
-        region_bb_collection = BoundingBoxCollection.from_event(region_event)
-
-        region_shapes = region_bb_collection.as_shapes(reference_frame=reference_frame)
-
-        region = Region(
-            name=PrefixedName(self.name.name + "_region"),
-            areas=region_shapes,
-            reference_frame=reference_frame,
-        )
-
-        room_view = Room(name=self.name, region=region)
+        room_view = Room(name=self.name, region=self.region)
 
         world = World()
-        world.add_body(reference_frame)
-        world.add_region(region)
+        world.add_body(self.region.reference_frame)
+        world.add_region(self.region)
         world.add_view(room_view)
 
         return world
@@ -540,15 +511,12 @@ class WallFactory(ViewFactory[Wall]):
     def create(self) -> World:
         wall_event = event_from_scale(self.scale).as_composite_set()
 
-        door_worlds = []
-
         for door_factory, door_transform in zip(
             self.door_factories, self.door_transforms
         ):
             temp_world = World()
             temp_world.add_body(Body())
             door_world = door_factory.create()
-            door_worlds.append(door_world)
             door: Door = door_world.get_views_by_type(Door)[0]
 
             connection = FixedConnection(
@@ -559,9 +527,14 @@ class WallFactory(ViewFactory[Wall]):
 
             temp_world.merge_world(door_world, connection)
 
+            assert door_factory.handle_direction in {Direction.X, Direction.NEGATIVE_X}, "Currently only handles are only supported in X direction"
+
+            door_plane_spatial_variables = SpatialVariables.xy
+            door_thickness_spatial_variable = SpatialVariables.z.value
+
             door_event = door.body.as_bounding_box_collection().event
-            door_event = door_event.marginal(SpatialVariables.yz)
-            door_event.fill_missing_variables([SpatialVariables.z.value])
+            door_event = door_event.marginal(door_plane_spatial_variables)
+            door_event.fill_missing_variables([door_thickness_spatial_variable])
 
             wall_event -= door_event
 
@@ -580,9 +553,10 @@ class WallFactory(ViewFactory[Wall]):
         wall_world.add_body(body)
         wall_world.add_view(wall)
 
-        for door_factory, door_world, transform in zip(
-            self.door_factories, door_worlds, self.door_transforms
+        for door_factory, transform in zip(
+            self.door_factories, self.door_transforms
         ):
+            door_world = door_factory.create()
 
             door_view: Door = door_world.get_views_by_type(Door)[0]
             door_body = door_view.body
