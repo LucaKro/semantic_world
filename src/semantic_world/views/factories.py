@@ -6,17 +6,36 @@ from typing import TypeVar, Generic
 
 from numpy import ndarray
 from random_events.interval import Bound
+from random_events.polytope import Polytope
 from random_events.product_algebra import *
 from trimesh import visual
 
 from semantic_world.variables import SpatialVariables
-from semantic_world.connections import PrismaticConnection, FixedConnection, RevoluteConnection
+from semantic_world.connections import (
+    PrismaticConnection,
+    FixedConnection,
+    RevoluteConnection,
+)
 from semantic_world.geometry import Box, Scale, BoundingBoxCollection
 from semantic_world.prefixed_name import PrefixedName
 from semantic_world.spatial_types.derivatives import DerivativeMap
-from semantic_world.spatial_types.spatial_types import TransformationMatrix, Vector3
+from semantic_world.spatial_types.spatial_types import (
+    TransformationMatrix,
+    Vector3,
+    Point3,
+)
 from semantic_world.utils import IDGenerator
-from semantic_world.views import Container, Handle, Dresser, Drawer, Door, Shelf, SupportingSurface
+from semantic_world.views import (
+    Container,
+    Handle,
+    Dresser,
+    Drawer,
+    Door,
+    Shelf,
+    SupportingSurface,
+    Room,
+    Wall,
+)
 from semantic_world.world import World
 from semantic_world.world_entity import Body, Region
 
@@ -33,12 +52,16 @@ class Direction(IntEnum):
 
 
 def event_from_scale(scale: Scale):
-    return SimpleEvent({SpatialVariables.x.value: closed(-scale.x / 2, scale.x / 2),
-                        SpatialVariables.y.value: closed(-scale.y / 2, scale.y / 2),
-                        SpatialVariables.z.value: closed(-scale.z / 2, scale.z / 2), })
+    return SimpleEvent(
+        {
+            SpatialVariables.x.value: closed(-scale.x / 2, scale.x / 2),
+            SpatialVariables.y.value: closed(-scale.y / 2, scale.y / 2),
+            SpatialVariables.z.value: closed(-scale.z / 2, scale.z / 2),
+        }
+    )
 
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 @dataclass
@@ -56,18 +79,26 @@ class ViewFactory(Generic[T], ABC):
         raise NotImplementedError()
 
 
-
-
 @dataclass
 class ShelfFactory(ViewFactory[Shelf]):
     name: PrefixedName
-    scale: Scale = field(default_factory=lambda: Scale(1., 1., 1.))
-    supporting_surfaces_factories: List[ViewFactory[SupportingSurface]] = field(default_factory=list, hash=False)
-    supporting_surfaces_transforms: List[TransformationMatrix] = field(default_factory=list, hash=False)
-    drawer_factories: List[ViewFactory[Drawer]] = field(default_factory=list, hash=False)
-    drawer_transforms: List[TransformationMatrix] = field(default_factory=list, hash=False)
+    scale: Scale = field(default_factory=lambda: Scale(1.0, 1.0, 1.0))
+    supporting_surfaces_factories: List[ViewFactory[SupportingSurface]] = field(
+        default_factory=list, hash=False
+    )
+    supporting_surfaces_transforms: List[TransformationMatrix] = field(
+        default_factory=list, hash=False
+    )
+    drawer_factories: List[ViewFactory[Drawer]] = field(
+        default_factory=list, hash=False
+    )
+    drawer_transforms: List[TransformationMatrix] = field(
+        default_factory=list, hash=False
+    )
     door_factories: List[ViewFactory[Door]] = field(default_factory=list, hash=False)
-    door_transforms: List[TransformationMatrix] = field(default_factory=list, hash=False)
+    door_transforms: List[TransformationMatrix] = field(
+        default_factory=list, hash=False
+    )
 
     def create(self) -> World:
         ...
@@ -90,29 +121,44 @@ class ShelfFactory(ViewFactory[Shelf]):
 @dataclass
 class ContainerFactory(ViewFactory[Container]):
     name: PrefixedName
-    scale: Scale = field(default_factory=lambda: Scale(1., 1., 1.))
+    scale: Scale = field(default_factory=lambda: Scale(1.0, 1.0, 1.0))
     wall_thickness: float = 0.05
     direction: Direction = Direction.X
 
     def create(self) -> World:
 
         outer_box = event_from_scale(self.scale)
-        inner_scale = Scale(self.scale.x - self.wall_thickness, self.scale.y - self.wall_thickness,
-                            self.scale.z - self.wall_thickness)
+        inner_scale = Scale(
+            self.scale.x - self.wall_thickness,
+            self.scale.y - self.wall_thickness,
+            self.scale.z - self.wall_thickness,
+        )
         inner_box = event_from_scale(inner_scale)
 
         if self.direction == Direction.X:
-            inner_box[SpatialVariables.x.value] = closed(-inner_scale.x / 2, self.scale.x / 2)
+            inner_box[SpatialVariables.x.value] = closed(
+                -inner_scale.x / 2, self.scale.x / 2
+            )
         elif self.direction == Direction.Y:
-            inner_box[SpatialVariables.y.value] = closed(-inner_scale.y / 2, self.scale.y / 2)
+            inner_box[SpatialVariables.y.value] = closed(
+                -inner_scale.y / 2, self.scale.y / 2
+            )
         elif self.direction == Direction.Z:
-            inner_box[SpatialVariables.z.value] = closed(-inner_scale.z / 2, self.scale.z / 2)
+            inner_box[SpatialVariables.z.value] = closed(
+                -inner_scale.z / 2, self.scale.z / 2
+            )
         elif self.direction == Direction.NEGATIVE_X:
-            inner_box[SpatialVariables.x.value] = closed(-self.scale.x / 2, inner_scale.x / 2)
+            inner_box[SpatialVariables.x.value] = closed(
+                -self.scale.x / 2, inner_scale.x / 2
+            )
         elif self.direction == Direction.NEGATIVE_Y:
-            inner_box[SpatialVariables.y.value] = closed(-self.scale.y / 2, inner_scale.y / 2)
+            inner_box[SpatialVariables.y.value] = closed(
+                -self.scale.y / 2, inner_scale.y / 2
+            )
         else:
-            inner_box[SpatialVariables.z.value] = closed(-self.scale.z / 2, inner_scale.z / 2)
+            inner_box[SpatialVariables.z.value] = closed(
+                -self.scale.z / 2, inner_scale.z / 2
+            )
 
         container = outer_box.as_composite_set() - inner_box.as_composite_set()
 
@@ -123,15 +169,16 @@ class ContainerFactory(ViewFactory[Container]):
         container_view = Container(body=body, name=self.name)
 
         world = World()
-        with world.modify_world():
-            world.add_body(body)
-            world.add_view(container_view)
+        world.add_body(body)
+        world.add_view(container_view)
 
         return world
+
 
 class Alignment(IntEnum):
     HORIZONTAL = 0
     VERTICAL = 1
+
 
 @dataclass
 class HandleFactory(ViewFactory[Handle]):
@@ -154,7 +201,9 @@ class HandleFactory(ViewFactory[Handle]):
         ).as_composite_set()
 
         x_interval = closed(0, self.scale.x - self.thickness)
-        y_interval = closed(-self.scale.y / 2 + self.thickness, self.scale.y / 2- self.thickness)
+        y_interval = closed(
+            -self.scale.y / 2 + self.thickness, self.scale.y / 2 - self.thickness
+        )
         z_interval = closed(-self.scale.z, self.scale.z)
 
         innerbox = SimpleEvent(
@@ -175,9 +224,8 @@ class HandleFactory(ViewFactory[Handle]):
         handle_view = Handle(name=self.name, body=handle)
 
         world = World()
-        with world.modify_world():
-            world.add_body(handle)
-            world.add_view(handle_view)
+        world.add_body(handle)
+        world.add_view(handle_view)
         return world
 
 
@@ -186,9 +234,13 @@ class DoorFactory(ViewFactory[Door]):
     name: PrefixedName
     handle_factory: HandleFactory
     handle_direction: Direction
-    scale: Scale = field(default_factory=lambda: Scale(.03, 1., 2.))
+    scale: Scale = field(default_factory=lambda: Scale(0.03, 1.0, 2.0))
 
     def create(self) -> World:
+
+        assert (
+            self.scale.x < self.scale.y and self.scale.x < self.scale.z
+        ), "A Door must be more wide (y) and high (z) than thick (x)"
 
         x_interval = closed(-self.scale.x / 2, self.scale.x / 2)
         y_interval = closed(-self.scale.y / 2, self.scale.y / 2)
@@ -196,22 +248,36 @@ class DoorFactory(ViewFactory[Door]):
 
         if self.handle_direction == Direction.X:
             x_interval = closed(0, self.scale.x)
-            handle_transform = TransformationMatrix.from_xyz_rpy(self.scale.x - 0.1, 0.05, 0, 0, 0, np.pi / 2)
+            handle_transform = TransformationMatrix.from_xyz_rpy(
+                self.scale.x - 0.1, 0.05, 0, 0, 0, np.pi / 2
+            )
         elif self.handle_direction == Direction.NEGATIVE_X:
             x_interval = closed(-self.scale.x, 0)
-            handle_transform = TransformationMatrix.from_xyz_rpy(-(self.scale.x - 0.1), 0.05, 0, 0, 0, np.pi / 2)
+            handle_transform = TransformationMatrix.from_xyz_rpy(
+                -(self.scale.x - 0.1), 0.05, 0, 0, 0, np.pi / 2
+            )
         elif self.handle_direction == Direction.Y:
             y_interval = closed(0, self.scale.y)
-            handle_transform = TransformationMatrix.from_xyz_rpy(0.05, (self.scale.y - 0.1), 0, 0, 0, 0)
+            handle_transform = TransformationMatrix.from_xyz_rpy(
+                0.05, (self.scale.y - 0.1), 0, 0, 0, 0
+            )
         elif self.handle_direction == Direction.NEGATIVE_Y:
             y_interval = closed(-self.scale.y, 0)
-            handle_transform = TransformationMatrix.from_xyz_rpy(0.05, -(self.scale.y - 0.1), 0, 0, 0, 0)
+            handle_transform = TransformationMatrix.from_xyz_rpy(
+                0.05, -(self.scale.y - 0.1), 0, 0, 0, 0
+            )
         else:
-            raise NotImplementedError(f"Handle direction Z and NEGATIVE_Z are not implemented yet")
+            raise NotImplementedError(
+                f"Handle direction Z and NEGATIVE_Z are not implemented yet"
+            )
 
-        box = SimpleEvent({SpatialVariables.x.value: x_interval,
-                           SpatialVariables.y.value: y_interval,
-                           SpatialVariables.z.value: z_interval, }).as_composite_set()
+        box = SimpleEvent(
+            {
+                SpatialVariables.x.value: x_interval,
+                SpatialVariables.y.value: y_interval,
+                SpatialVariables.z.value: z_interval,
+            }
+        ).as_composite_set()
 
         bounding_box_collection = BoundingBoxCollection.from_event(box)
         body = Body(name=self.name)
@@ -220,13 +286,14 @@ class DoorFactory(ViewFactory[Door]):
         body.visual = collision
 
         world = World()
-        with world.modify_world():
-            world.add_body(body)
+        world.add_body(body)
 
         handle_world = self.handle_factory.create()
         handle_view: Handle = handle_world.get_views_by_type(Handle)[0]
 
-        door_to_handle = FixedConnection(world.root, handle_world.root, handle_transform)
+        door_to_handle = FixedConnection(
+            world.root, handle_world.root, handle_transform
+        )
 
         world.merge_world(handle_world, door_to_handle)
 
@@ -249,13 +316,19 @@ class DrawerFactory(ViewFactory[Drawer]):
         handle_world = self.handle_factory.create()
         handle_view: Handle = handle_world.get_views_by_type(Handle)[0]
 
-        drawer_to_handle = FixedConnection(container_world.root, handle_world.root,
-                                           TransformationMatrix.from_xyz_rpy(
-                                               (self.container_factory.scale.x / 2) + 0.03, 0, 0, 0, 0, 0))
+        drawer_to_handle = FixedConnection(
+            container_world.root,
+            handle_world.root,
+            TransformationMatrix.from_xyz_rpy(
+                (self.container_factory.scale.x / 2) + 0.03, 0, 0, 0, 0, 0
+            ),
+        )
 
         container_world.merge_world(handle_world, drawer_to_handle)
 
-        drawer_view = Drawer(name=self.name, container=container_view, handle=handle_view)
+        drawer_view = Drawer(
+            name=self.name, container=container_view, handle=handle_view
+        )
 
         container_world.add_view(drawer_view)
 
@@ -267,37 +340,52 @@ class DresserFactory(ViewFactory[Dresser]):
     name: PrefixedName
     container_factory: ContainerFactory
     drawers_factories: List[DrawerFactory] = field(default_factory=list, hash=False)
-    drawer_transforms: List[TransformationMatrix] = field(default_factory=list, hash=False)
+    drawer_transforms: List[TransformationMatrix] = field(
+        default_factory=list, hash=False
+    )
     door_factories: List[DoorFactory] = field(default_factory=list, hash=False)
-    door_transforms: List[TransformationMatrix] = field(default_factory=list, hash=False)
+    door_transforms: List[TransformationMatrix] = field(
+        default_factory=list, hash=False
+    )
 
     def create(self) -> World:
         assert len(self.drawers_factories) == len(
-            self.drawer_transforms), "Number of drawers must match number of transforms"
+            self.drawer_transforms
+        ), "Number of drawers must match number of transforms"
 
         container_world = self.container_factory.create()
         container_view: Container = container_world.get_views_by_type(Container)[0]
 
-        for drawer_factory, transform in zip(self.drawers_factories, self.drawer_transforms):
+        for drawer_factory, transform in zip(
+            self.drawers_factories, self.drawer_transforms
+        ):
             drawer_world = drawer_factory.create()
 
             drawer_view: Drawer = drawer_world.get_views_by_type(Drawer)[0]
             drawer_body = drawer_view.container.body
 
             lower_limits = DerivativeMap[float]()
-            lower_limits.position = 0.
+            lower_limits.position = 0.0
             upper_limits = DerivativeMap[float]()
             upper_limits.position = drawer_factory.container_factory.scale.x * 0.75
 
-            dof = container_world.create_degree_of_freedom(PrefixedName(f"{drawer_body.name.name}_connection",
-                                                                        drawer_body.name.prefix), lower_limits,
-                                                           upper_limits)
-            connection = PrismaticConnection(parent=container_world.bodies[0], child=drawer_body,
-                                             origin_expression=transform,
-                                             multiplier=1., offset=0., axis=Vector3.X(),
-                                             dof=dof)
-            with container_world.modify_world():
-                container_world.merge_world(drawer_world, connection)
+            dof = container_world.create_degree_of_freedom(
+                PrefixedName(
+                    f"{drawer_body.name.name}_connection", drawer_body.name.prefix
+                ),
+                lower_limits,
+                upper_limits,
+            )
+            connection = PrismaticConnection(
+                parent=container_world.root,
+                child=drawer_body,
+                origin_expression=transform,
+                multiplier=1.0,
+                offset=0.0,
+                axis=Vector3.X(),
+                dof=dof,
+            )
+            container_world.merge_world(drawer_world, connection)
 
         for door_factory, transform in zip(self.door_factories, self.door_transforms):
             door_world = door_factory.create()
@@ -305,38 +393,61 @@ class DresserFactory(ViewFactory[Dresser]):
             door_view: Door = door_world.get_views_by_type(Door)[0]
             door_body = door_view.body
 
-            handle_position: ndarray[
-                float] = door_view.handle.body.parent_connection.origin_expression.to_position().to_np()
+            handle_position: ndarray[float] = (
+                door_view.handle.body.parent_connection.origin_expression.to_position().to_np()
+            )
 
             lower_limits = DerivativeMap[float]()
             upper_limits = DerivativeMap[float]()
-            if door_factory.handle_direction in {Direction.NEGATIVE_X, Direction.NEGATIVE_Y}:
-                lower_limits.position = 0.
+            if door_factory.handle_direction in {
+                Direction.NEGATIVE_X,
+                Direction.NEGATIVE_Y,
+            }:
+                lower_limits.position = 0.0
                 upper_limits.position = np.pi / 2
             else:
                 lower_limits.position = -np.pi / 2
-                upper_limits.position = 0.
+                upper_limits.position = 0.0
 
-            dof = container_world.create_degree_of_freedom(PrefixedName(f"{door_body.name.name}_connection",
-                                                                        door_body.name.prefix), lower_limits,
-                                                           upper_limits)
+            dof = container_world.create_degree_of_freedom(
+                PrefixedName(
+                    f"{door_body.name.name}_connection", door_body.name.prefix
+                ),
+                lower_limits,
+                upper_limits,
+            )
 
             offset = -np.sign(handle_position[1]) * (door_factory.scale.y / 2)
             door_position = transform.to_np()[:3, 3] + np.array([0, offset, 0])
 
-            pivot_point = TransformationMatrix.from_xyz_rpy(door_position[0], door_position[1], door_position[2], 0, 0,
-                                                            0, reference_frame=container_world.bodies[0])
+            pivot_point = TransformationMatrix.from_xyz_rpy(
+                door_position[0],
+                door_position[1],
+                door_position[2],
+                0,
+                0,
+                0,
+                reference_frame=container_world.root,
+            )
 
-            connection = RevoluteConnection(parent=container_world.bodies[0], child=door_body,
-                                            origin_expression=pivot_point,
-                                            multiplier=1., offset=0., axis=Vector3.Z(),
-                                            dof=dof)
-            with container_world.modify_world():
-                container_world.merge_world(door_world, connection)
+            connection = RevoluteConnection(
+                parent=container_world.root,
+                child=door_body,
+                origin_expression=pivot_point,
+                multiplier=1.0,
+                offset=0.0,
+                axis=Vector3.Z(),
+                dof=dof,
+            )
 
-        dresser_view = Dresser(name=self.name, container=container_view,
-                               drawers=[drawer for drawer in container_world.get_views_by_type(Drawer)],
-                               doors=[door for door in container_world.get_views_by_type(Door)])
+            container_world.merge_world(door_world, connection)
+
+        dresser_view = Dresser(
+            name=self.name,
+            container=container_view,
+            drawers=[drawer for drawer in container_world.get_views_by_type(Drawer)],
+            doors=[door for door in container_world.get_views_by_type(Door)],
+        )
         container_world.add_view(dresser_view)
 
         return self.make_interior(container_world)
@@ -346,35 +457,196 @@ class DresserFactory(ViewFactory[Dresser]):
         dresser: Dresser = world.get_views_by_type(Dresser)[0]
         container_body = dresser.container.body
 
-        container_bounding_boxes = container_body.as_bounding_box_collection(container_body._world.root).event
+        container_bounding_boxes = container_body.as_bounding_box_collection(
+            container_body._world.root
+        ).event
         container_footprint = container_bounding_boxes.marginal(SpatialVariables.yz)
 
         for body in world.bodies:
             if body == container_body:
                 continue
-            body_footprint = (body.as_bounding_box_collection(body._world.root).event.marginal(SpatialVariables.yz))
+            body_footprint = body.as_bounding_box_collection(
+                body._world.root
+            ).event.marginal(SpatialVariables.yz)
             container_footprint -= body_footprint
 
         container_footprint.fill_missing_variables([SpatialVariables.x.value])
 
-        depth_interval = container_bounding_boxes.bounding_box()[SpatialVariables.x.value]
-        limiting_event = SimpleEvent({SpatialVariables.x.value: depth_interval}).as_composite_set()
+        depth_interval = container_bounding_boxes.bounding_box()[
+            SpatialVariables.x.value
+        ]
+        limiting_event = SimpleEvent(
+            {SpatialVariables.x.value: depth_interval}
+        ).as_composite_set()
         limiting_event.fill_missing_variables(SpatialVariables.yz)
 
-        container_bounding_boxes |= (container_footprint & limiting_event)
+        container_bounding_boxes |= container_footprint & limiting_event
 
-        container_body.collision = BoundingBoxCollection.from_event(container_bounding_boxes).as_shapes(
-            container_body)
+        container_body.collision = BoundingBoxCollection.from_event(
+            container_bounding_boxes
+        ).as_shapes(container_body)
         container_body.visual = container_body.collision
         return world
 
 
-def replace_dresser_drawer_connections(world: World):
-    dresser_pattern = re.compile(r'^dresser_\d+.*$')
-    drawer_pattern = re.compile(r'^.*_drawer_.*$')
-    door_pattern = re.compile(r'^.*_door_.*$')
+@dataclass
+class RoomFactory(ViewFactory[Room]):
+    name: PrefixedName
+    polytope_corners: List[Point3]
 
-    dresser_bodies = [b for b in world.bodies if bool(dresser_pattern.fullmatch(b.name.name))]
+    def create(self) -> World:
+        reference_frame = Body(name=self.name)
+
+        points_2d = np.array([[p[0], p[2]] for p in self.polytope_corners])
+        polytope = Polytope.from_2d_points(points_2d)
+        region_event = polytope.maximum_inner_box().to_simple_event().as_composite_set()
+
+        region_event = region_event.update_variables(
+            {
+                Continuous("x_0"): SpatialVariables.x.value,
+                Continuous("x_1"): SpatialVariables.z.value,
+            }
+        )
+        region_event.fill_missing_variables([SpatialVariables.y.value])
+
+        region_bb_collection = BoundingBoxCollection.from_event(region_event)
+
+        region_shapes = region_bb_collection.as_shapes(reference_frame=reference_frame)
+
+        region = Region(
+            name=PrefixedName(self.name.name + "_region"),
+            areas=region_shapes,
+            reference_frame=reference_frame,
+        )
+
+        room_view = Room(name=self.name, region=region)
+
+        world = World()
+        world.add_body(reference_frame)
+        world.add_region(region)
+        world.add_view(room_view)
+
+        return world
+
+
+@dataclass
+class WallFactory(ViewFactory[Wall]):
+    name: PrefixedName
+    scale: Scale
+    door_factories: List[DoorFactory] = field(default_factory=list)
+    door_transforms: List[TransformationMatrix] = field(default_factory=list)
+    adjacent_rooms: List[Room] = field(default_factory=list)
+
+    def create(self) -> World:
+        wall_event = event_from_scale(self.scale).as_composite_set()
+
+        door_worlds = []
+
+        for door_factory, door_transform in zip(
+            self.door_factories, self.door_transforms
+        ):
+            temp_world = World()
+            temp_world.add_body(Body())
+            door_world = door_factory.create()
+            door_worlds.append(door_world)
+            door: Door = door_world.get_views_by_type(Door)[0]
+
+            connection = FixedConnection(
+                parent=temp_world.root,
+                child=door.body,
+                origin_expression=door_transform,
+            )
+
+            temp_world.merge_world(door_world, connection)
+
+            door_event = door.body.as_bounding_box_collection().event
+            door_event = door_event.marginal(SpatialVariables.yz)
+            door_event.fill_missing_variables([SpatialVariables.z.value])
+
+            wall_event -= door_event
+
+        bounding_box_collection = BoundingBoxCollection.from_event(wall_event)
+
+        collision = bounding_box_collection.as_shapes()
+        body = Body(name=self.name, collision=collision, visual=collision)
+
+        wall = Wall(
+            name=self.name,
+            body=body,
+            adjacent_rooms=self.adjacent_rooms,
+        )
+
+        wall_world = World()
+        wall_world.add_body(body)
+        wall_world.add_view(wall)
+
+        for door_factory, door_world, transform in zip(
+            self.door_factories, door_worlds, self.door_transforms
+        ):
+
+            door_view: Door = door_world.get_views_by_type(Door)[0]
+            door_body = door_view.body
+
+            handle_position: ndarray[float] = (
+                door_view.handle.body.parent_connection.origin_expression.to_position().to_np()
+            )
+
+            lower_limits = DerivativeMap[float]()
+            upper_limits = DerivativeMap[float]()
+            if door_factory.handle_direction in {
+                Direction.NEGATIVE_X,
+                Direction.NEGATIVE_Y,
+            }:
+                lower_limits.position = 0.0
+                upper_limits.position = np.pi / 2
+            else:
+                lower_limits.position = -np.pi / 2
+                upper_limits.position = 0.0
+
+            dof = wall_world.create_degree_of_freedom(
+                PrefixedName(
+                    f"{door_body.name.name}_connection", door_body.name.prefix
+                ),
+                lower_limits,
+                upper_limits,
+            )
+
+            offset = -np.sign(handle_position[1]) * (door_factory.scale.y / 2)
+            door_position = transform.to_np()[:3, 3] + np.array([0, offset, 0])
+
+            pivot_point = TransformationMatrix.from_xyz_rpy(
+                door_position[0],
+                door_position[1],
+                door_position[2],
+                0,
+                0,
+                0,
+                reference_frame=wall_world.root,
+            )
+
+            connection = RevoluteConnection(
+                parent=wall_world.root,
+                child=door_body,
+                origin_expression=pivot_point,
+                multiplier=1.0,
+                offset=0.0,
+                axis=Vector3.Z(),
+                dof=dof,
+            )
+
+            wall_world.merge_world(door_world, connection)
+
+        return wall_world
+
+
+def replace_dresser_drawer_connections(world: World):
+    dresser_pattern = re.compile(r"^dresser_\d+.*$")
+    drawer_pattern = re.compile(r"^.*_drawer_.*$")
+    door_pattern = re.compile(r"^.*_door_.*$")
+
+    dresser_bodies = [
+        b for b in world.bodies if bool(dresser_pattern.fullmatch(b.name.name))
+    ]
     for dresser in dresser_bodies:
         drawer_factories = []
         drawer_transforms = []
@@ -384,35 +656,63 @@ def replace_dresser_drawer_connections(world: World):
             if bool(drawer_pattern.fullmatch(child.name.name)):
                 drawer_transforms.append(child.parent_connection.origin_expression)
 
-                handle_factory = HandleFactory(name=PrefixedName(child.name.name + "_handle", child.name.prefix),
-                                               width=0.1)
+                handle_factory = HandleFactory(
+                    name=PrefixedName(child.name.name + "_handle", child.name.prefix),
+                    width=0.1,
+                )
                 container_factory = ContainerFactory(
-                    name=PrefixedName(child.name.name + "_container", child.name.prefix),
-                    scale=child.as_bounding_box_collection(child._world.root).bounding_boxes[0].scale, direction=Direction.Z)
-                drawer_factory = DrawerFactory(name=child.name, handle_factory=handle_factory,
-                                               container_factory=container_factory)
+                    name=PrefixedName(
+                        child.name.name + "_container", child.name.prefix
+                    ),
+                    scale=child.as_bounding_box_collection(child._world.root)
+                    .bounding_boxes[0]
+                    .scale,
+                    direction=Direction.Z,
+                )
+                drawer_factory = DrawerFactory(
+                    name=child.name,
+                    handle_factory=handle_factory,
+                    container_factory=container_factory,
+                )
                 drawer_factories.append(drawer_factory)
             elif bool(door_pattern.fullmatch(child.name.name)):
                 door_transforms.append(child.parent_connection.origin_expression)
-                handle_factory = HandleFactory(PrefixedName(child.name.name + "_handle", child.name.prefix), 0.1)
+                handle_factory = HandleFactory(
+                    PrefixedName(child.name.name + "_handle", child.name.prefix), 0.1
+                )
 
-                door_factory = DoorFactory(name=child.name, scale=child.as_bounding_box_collection(child._world.root).bounding_boxes[0].scale,
-                                           handle_factory=handle_factory,
-                                           handle_direction=Direction.Y)
+                door_factory = DoorFactory(
+                    name=child.name,
+                    scale=child.as_bounding_box_collection(child._world.root)
+                    .bounding_boxes[0]
+                    .scale,
+                    handle_factory=handle_factory,
+                    handle_direction=Direction.Y,
+                )
                 door_factories.append(door_factory)
 
         dresser_container_factory = ContainerFactory(
             name=PrefixedName(dresser.name.name + "_container", dresser.name.prefix),
-            scale=dresser.as_bounding_box_collection(dresser._world.root).bounding_boxes[0].scale, direction=Direction.X)
-        dresser_factory = DresserFactory(name=dresser.name, container_factory=dresser_container_factory,
-                                         drawers_factories=drawer_factories,
-                                         drawer_transforms=drawer_transforms, door_factories=door_factories,
-                                         door_transforms=door_transforms)
+            scale=dresser.as_bounding_box_collection(dresser._world.root)
+            .bounding_boxes[0]
+            .scale,
+            direction=Direction.X,
+        )
+        dresser_factory = DresserFactory(
+            name=dresser.name,
+            container_factory=dresser_container_factory,
+            drawers_factories=drawer_factories,
+            drawer_transforms=drawer_transforms,
+            door_factories=door_factories,
+            door_transforms=door_transforms,
+        )
 
         return dresser_factory
 
 
-def supporting_surfaces(body: Body, min_surface_area: float = 0.03, clearance=1e-4) -> Optional[SupportingSurface]:
+def supporting_surfaces(
+    body: Body, min_surface_area: float = 0.03, clearance=1e-4
+) -> Optional[SupportingSurface]:
     """
     Identifies and calculates supporting surfaces of a given body based on geometric
     criteria. The function examines the bounding box geometry of the provided body to
@@ -438,9 +738,11 @@ def supporting_surfaces(body: Body, min_surface_area: float = 0.03, clearance=1e
     events = []
 
     for simple_event in body_geometry.simple_sets:
-        for x, y, z in itertools.product(simple_event[SpatialVariables.x.value].simple_sets,
-                                         simple_event[SpatialVariables.y.value].simple_sets,
-                                         simple_event[SpatialVariables.z.value].simple_sets):
+        for x, y, z in itertools.product(
+            simple_event[SpatialVariables.x.value].simple_sets,
+            simple_event[SpatialVariables.y.value].simple_sets,
+            simple_event[SpatialVariables.z.value].simple_sets,
+        ):
 
             size = size_simple_interval(x) * size_simple_interval(y)
             if size < min_surface_area:
@@ -449,15 +751,18 @@ def supporting_surfaces(body: Body, min_surface_area: float = 0.03, clearance=1e
             z: SimpleInterval
             z = SimpleInterval(z.upper, z.upper + clearance, Bound.OPEN, Bound.CLOSED)
 
-            potential_surface = SimpleEvent({SpatialVariables.x.value: x,
-                                             SpatialVariables.y.value: y,
-                                             SpatialVariables.z.value: z}).as_composite_set()
+            potential_surface = SimpleEvent(
+                {
+                    SpatialVariables.x.value: x,
+                    SpatialVariables.y.value: y,
+                    SpatialVariables.z.value: z,
+                }
+            ).as_composite_set()
 
             intersection = potential_surface - body_geometry
 
             if not intersection.is_empty():
                 events.append(intersection)
-
 
     if len(events) == 0:
         return None
@@ -466,9 +771,13 @@ def supporting_surfaces(body: Body, min_surface_area: float = 0.03, clearance=1e
     result.make_disjoint()
 
     import plotly.graph_objects as go
+
     go.Figure(result.plot()).show()
 
-    region = Region(areas=BoundingBoxCollection.from_event(result).as_shapes(body), reference_frame=body)
+    region = Region(
+        areas=BoundingBoxCollection.from_event(result).as_shapes(body),
+        reference_frame=body,
+    )
     result = SupportingSurface(region=region)
 
     return result

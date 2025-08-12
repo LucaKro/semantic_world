@@ -10,17 +10,19 @@ from semantic_world.geometry import BoundingBoxCollection, Scale
 from semantic_world.prefixed_name import PrefixedName
 from semantic_world.spatial_types.spatial_types import TransformationMatrix, Point3
 from semantic_world.variables import SpatialVariables
-from semantic_world.views.factories import DoorFactory
+from semantic_world.views.factories import (
+    DoorFactory,
+    RoomFactory,
+    WallFactory,
+    HandleFactory,
+    Direction,
+)
 from semantic_world.world_entity import Body, Region
 
 
 @dataclass
-class WallWithDoor:
-    door: dict = field(default_factory=dict)
-    walls: List[dict] = field(default_factory=list)
-
-@dataclass
 class Wall:
+    doors: List[dict] = field(default_factory=dict)
     walls: List[dict] = field(default_factory=list)
 
 
@@ -28,53 +30,37 @@ class Wall:
 class ProcTHORParser:
     file_path: str
 
-    def import_room(self, room):
+    def import_room(self, room) -> Tuple[RoomFactory, TransformationMatrix]:
         room_name = room["roomType"]
         room_id = room["id"].split("|")[-1]
         room_name = f"{room_name}_{room_id}"
         room_name = PrefixedName(room_name)
 
-        reference_frame = Body(name=room_name)
-
         room_polytope = room["floorPolygon"]
 
-        cx = sum(v['x'] for v in room_polytope) / len(room_polytope)
-        cy = sum(v['y'] for v in room_polytope) / len(room_polytope)
-        cz = sum(v['z'] for v in room_polytope) / len(room_polytope)
+        room_polytope: List[Point3] = [
+            Point3(v["x"], v["y"], v["z"]) for v in room_polytope
+        ]
+
+        polytope_length = len(room_polytope)
+        cx = sum(v.x.to_np() for v in room_polytope) / polytope_length
+        cy = sum(v.y.to_np() for v in room_polytope) / polytope_length
+        cz = sum(v.z.to_np() for v in room_polytope) / polytope_length
 
         center = (cx, cy, cz)
 
         centered_polytope = [
-            (v['x'] - cx, v['y'] - cy, v['z'] - cz) for v in room_polytope
+            Point3(v.x.to_np() - cx, v.y.to_np() - cy, v.z.to_np() - cz)
+            for v in room_polytope
         ]
 
-        points_2d = np.array([[p[0], p[2]] for p in centered_polytope])
-        polytope = Polytope.from_2d_points(points_2d)
-        region_event = polytope.maximum_inner_box().to_simple_event().as_composite_set()
-
-        region_event = region_event.update_variables(
-            {
-                Continuous("x_0"): SpatialVariables.x.value,
-                Continuous("x_1"): SpatialVariables.z.value,
-            }
-        )
-        region_event.fill_missing_variables([SpatialVariables.y.value])
-
-        region_bb_collection = BoundingBoxCollection.from_event(region_event)
-
-        region_shapes = region_bb_collection.as_shapes(reference_frame=reference_frame)
-
-        region = Region(
-            name=PrefixedName(room_name.name + "_region"),
-            areas=region_shapes,
-            reference_frame=reference_frame,
-        )
+        room_factory = RoomFactory(name=room_name, polytope_corners=centered_polytope)
 
         transform = TransformationMatrix.from_xyz_rpy(
             center[0], center[1], center[2], 0, 0, 0
         )
 
-        return region, transform
+        return room_factory, transform
 
     def import_object(self, parent_body, obj):
         body_name = obj["id"].replace("|", "_")
@@ -98,7 +84,7 @@ class ProcTHORParser:
         return
 
     @staticmethod
-    def pair_walls_by_polygon(
+    def group_walls_by_polygon(
         remaining_walls: List[Dict],
     ) -> Tuple[List[Wall], List[Dict]]:
         """
@@ -130,7 +116,7 @@ class ProcTHORParser:
 
     def group_doors_with_walls(
         self, doors: List[Dict], walls: List[Dict]
-    ) -> Tuple[List[WallWithDoor], List[Wall]]:
+    ) -> List[Wall]:
         """
         Returns:
           - door_groups: list of {'door': <door>, 'walls': [<wall0?>, <wall1?>], 'wallIds': [id0?, id1?]}
@@ -151,13 +137,17 @@ class ProcTHORParser:
                 if w:
                     found.append(w)
                     used_wall_ids.add(wid)
-            door_groups.append(WallWithDoor(door=d, walls=found))
+            door_groups.append(Wall(door=d, walls=found))
 
         remaining_walls = [w for w in walls if w["id"] not in used_wall_ids]
 
-        paired_walls, unpaired_walls = self.pair_walls_by_polygon(remaining_walls)
+        paired_walls, unpaired_walls = self.group_walls_by_polygon(remaining_walls)
 
-        assert len(unpaired_walls) == 0, "Apparently there are cases were there really is only one wall, not two with the same corners"
+        door_groups.extend(paired_walls)
+
+        assert (
+            len(unpaired_walls) == 0
+        ), "Apparently there are cases were there really is only one wall, not two with the same corners. This case may need to be handled now"
 
         return door_groups, paired_walls
 
@@ -181,44 +171,54 @@ class ProcTHORParser:
 
         return position, scale
 
-    def import_walls_with_doors(self, wall_with_door: WallWithDoor):
+    def import_walls_with_doors(self, wall: Wall) -> Tuple[WallFactory, TransformationMatrix]:
 
-        door = wall_with_door.door
+        door_factories = []
+        door_transforms = []
 
-        room_numbers = door["id"].split("|")[1:]
+        for door in wall.walls:
 
-        door_name = f"{door["assetId"]}_room{room_numbers[0]}_room{room_numbers[1]}"
+            room_numbers = door["id"].split("|")[1:]
 
-        door_position, door_scale = self.polygon_scale_and_center(
-            door["holePolygon"]
-        )
+            door_name = PrefixedName(f"{door["assetId"]}_room{room_numbers[0]}_room{room_numbers[1]}")
+            handle_name = PrefixedName(f"{door["assetId"]}_room{room_numbers[0]}_room{room_numbers[1]}_handle")
 
-        # I think a double door factory makes sense here, since it allows us to make assumptions about joints, scales, positions etc here
-        door_factory = DoorFactory(name=PrefixedName(door_name), scale=door_scale, handle_factory="", handle_direction="")
+            door_position, door_scale = self.polygon_scale_and_center(door["holePolygon"])
 
-        door_transform = TransformationMatrix.from_xyz_rpy(door_position.x, door_position.y, door_position.z , 0, 0, 0)
+            # I think a double door factory makes sense here, since it allows us to make assumptions about joints, scales, positions etc here
+            handle_direction = Direction.Y
+            door_factory = DoorFactory(
+                name=door_name,
+                scale=door_scale,
+                handle_factory=HandleFactory(name=handle_name),
+                handle_direction=handle_direction,
+            )
 
-        wall_name = f"wall_room{room_numbers[0]}_room{room_numbers[1]}"
+            door_transform = TransformationMatrix.from_xyz_rpy(
+                door_position.x, door_position.y, door_position.z, 0, 0, 0
+            )
 
-        wall_position, wall_scale = self.polygon_scale_and_center(wall_with_door.walls[0]["polygon"])
-        wall_factory = ... # WallFactory(name=PrefixedName(wall_name), scale=wall_scale, door_factories=[door_factory], door_transforms=[door_transform]
-
-        wall_transform = TransformationMatrix.from_xyz_rpy(wall_position.x, wall_position.y, wall_position.z, 0, 0, 0)
-
-        return
-
-    def import_wall(self, wall: Wall):
+            door_factories.append(door_factory)
+            door_transforms.append(door_transform)
 
         room_numbers = [w["id"].split("|")[1] for w in wall.walls]
-        wall_name = f"wall_room{room_numbers[0]}_room{room_numbers[1]}"
+        wall_name = PrefixedName(f"wall_room{room_numbers[0]}_room{room_numbers[1]}")
 
-        wall_position, wall_scale = self.polygon_scale_and_center(wall.walls[0]["polygon"])
+        wall_position, wall_scale = self.polygon_scale_and_center(
+            wall.walls[0]["polygon"]
+        )
+        wall_factory = WallFactory(
+            name=wall_name,
+            scale=wall_scale,
+            door_factories=door_factories,
+            door_transforms=door_transforms,
+        )
 
-        wall_factory = ... # WallFactory(scale=wall_scale, door_factories=[door_factory], door_transforms=[door_transform]
+        wall_transform = TransformationMatrix.from_xyz_rpy(
+            wall_position.x, wall_position.y, wall_position.z, 0, 0, 0
+        )
 
-        wall_transform = TransformationMatrix.from_xyz_rpy(wall_position.x, wall_position.y, wall_position.z, 0, 0, 0)
-
-        return
+        return wall_factory, wall_transform
 
     def parse(self):
         with open(self.file_path) as f:
@@ -247,9 +247,7 @@ class ProcTHORParser:
 
 
 def main():
-    parser = ProcTHORParser(
-        "../../../../resources/procthor_json/house_987654321.json"
-    )
+    parser = ProcTHORParser("../../../../resources/procthor_json/house_987654321.json")
     parser.parse()
 
 

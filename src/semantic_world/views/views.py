@@ -18,13 +18,16 @@ class HasDrawers:
     """
     A mixin class for views that have drawers.
     """
+
     drawers: List[Drawer] = field(default_factory=list, hash=False)
+
 
 @dataclass
 class HasDoors:
     """
     A mixin class for views that have doors.
     """
+
     doors: List[Door] = field(default_factory=list, hash=False)
 
 
@@ -51,11 +54,13 @@ class Door(View):  # Door has a Footprint
     """
     Door in a body that has a Handle and can open towards or away from the user.
     """
+
     handle: Handle
     body: Body
 
     def __post_init__(self):
         self.name = PrefixedName(str(self.body.name), self.__class__.__name__)
+
 
 @dataclass(unsafe_hash=True)
 class Fridge(View):
@@ -65,6 +70,7 @@ class Fridge(View):
     def __post_init__(self):
         if self.name is None:
             self.name = PrefixedName(str(self.body.name), self.__class__.__name__)
+
 
 @dataclass(unsafe_hash=True)
 class Table(View):
@@ -89,24 +95,25 @@ class Table(View):
         p = uniform_measure_of_event(event)
         p = p.marginal(SpatialVariables.xy)
         samples = p.sample(amount)
-        z_coordinate = np.full((amount, 1), max([b.max_z for b in area_of_table]) + 0.01)
+        z_coordinate = np.full(
+            (amount, 1), max([b.max_z for b in area_of_table]) + 0.01
+        )
         samples = np.concatenate((samples, z_coordinate), axis=1)
         return [Point3(*s, reference_frame=self.top) for s in samples]
 
     def __post_init__(self):
         self.name = self.top.name
 
+
 ################################
 
 
 @dataclass(unsafe_hash=True)
-class Components(View):
-    ...
+class Components(View): ...
 
 
 @dataclass(unsafe_hash=True)
-class Furniture(View):
-    ...
+class Furniture(View): ...
 
 
 #################### subclasses von Components
@@ -131,11 +138,13 @@ class Drawer(Components):
         if self.name is None:
             self.name = self.container.name
 
+
 @dataclass
 class SupportingSurface(View):
     """
     A view that represents a supporting surface.
     """
+
     region: Region
     """
     The body that represents the supporting surface.
@@ -148,22 +157,26 @@ class SupportingSurface(View):
 
 ############################### subclasses to Furniture
 @dataclass
-class Cupboard(Furniture):
-    ...
+class Cupboard(Furniture): ...
+
 
 @dataclass
 class Shelf(Furniture, HasDoors, HasDrawers):
     container: Container = field(default=None, hash=False)
-    supporting_surfaces: List[SupportingSurface] = field(default_factory=list, hash=False)
+    supporting_surfaces: List[SupportingSurface] = field(
+        default_factory=list, hash=False
+    )
 
     def __post_init__(self):
         if self.name is None:
             self.name = self.container.name
 
+
 @dataclass(unsafe_hash=True)
 class Fridge(View):
     body: Body
     door: Door
+
 
 @dataclass
 class Dresser(Furniture):
@@ -174,6 +187,7 @@ class Dresser(Furniture):
     def __post_init__(self):
         if self.name is None:
             self.name = self.container.name
+
 
 ############################### subclasses to Cupboard
 @dataclass(unsafe_hash=True)
@@ -188,3 +202,18 @@ class Cabinet(Cupboard):
 @dataclass
 class Wardrobe(Cupboard):
     doors: List[Door] = field(default_factory=list)
+
+
+@dataclass
+class Room(SupportingSurface): ...
+
+@dataclass
+class Wall(View):
+    body: Body
+    doors: List[Door] = field(default_factory=list)
+    adjacent_rooms: List[Room] = field(default_factory=list)
+
+    def __post_init__(self):
+        if self.name is None:
+            self.name = self.body.name
+
