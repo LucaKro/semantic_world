@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import os
 import time
@@ -11,18 +12,13 @@ from typing import Optional
 import numpy as np
 import rclpy
 from ormatic.utils import drop_database
-from random_events.interval import closed
-from random_events.polytope import Polytope
-from random_events.product_algebra import SimpleEvent
-from random_events.variable import Continuous
 from sqlalchemy import create_engine
 from sqlalchemy import select, exists, and_, or_
 from sqlalchemy.orm import Session
-from scipy.spatial.transform import Rotation
 
 from semantic_world.adapters.viz_marker import VizMarkerPublisher
 from semantic_world.connections import FixedConnection
-from semantic_world.geometry import Scale, BoundingBoxCollection
+from semantic_world.geometry import Scale
 from semantic_world.orm.ormatic_interface import (
     WorldMappingDAO,
     BodyDAO,
@@ -36,7 +32,6 @@ from semantic_world.spatial_types.spatial_types import (
     TransformationMatrix,
     Point3,
     RotationMatrix,
-    Quaternion,
 )
 from semantic_world.variables import SpatialVariables
 from semantic_world.views.factories import (
@@ -51,17 +46,37 @@ from semantic_world.world_entity import Body, Region
 
 
 @dataclass
-class Wall:
-    doors: List[dict] = field(default_factory=dict)
+class ProcthorWall:
+    """
+    Procthor wall, represented by two polygon walls perfectly overlapping, and a list of dictionaries
+    representing door holes which may be empty
+    """
+
     walls: List[dict] = field(default_factory=list)
+    """
+    List of dictionaries, where each dictionary represents one wall polygon in procthor
+    """
+
+    doors: List[dict] = field(default_factory=list)
+    """
+    List of dictionaries, where each dictionary represents one door hole in the wall polygon
+    """
 
 
-def unity4x4_to_target4x4(M_u):
+def unity4x4_to_sdt4x4(unity_transform_matrix: np.ndarray):
     """
-    Convert a 4x4 Unity transform to the right-handed Z-up, X-forward system.
-    M_u: (4,4) float-like
-    returns: (4,4) numpy.ndarray
+    Convert a left-handed Y-up, Z-forward Unity transform to the right-handed Z-up, X-forward convention used in the
+    semantic digital twin.
+
+    :param unity_transform_matrix: (4, 4) shaped np.ndarray since we need to use reflection
+    returns: (4,4) numpy.ndarray representing the input transform, in the fixed coordinate convention
     """
+
+    assert unity_transform_matrix.shape == (
+        4,
+        4,
+    ), "unity_transform_matrix is not a 4x4 shaped np.ndarray."
+
     permutation_matrix = np.array(
         [
             [0, 0, 1],
@@ -77,137 +92,109 @@ def unity4x4_to_target4x4(M_u):
     conjugation_matrix[:3, :3] = R
     inverse_conjugation_matrix = conjugation_matrix.T
 
-    M_u = np.asarray(M_u, float).reshape(4, 4)
+    unity_transform_matrix = np.asarray(unity_transform_matrix, float).reshape(4, 4)
 
-    return conjugation_matrix @ M_u @ inverse_conjugation_matrix
+    return conjugation_matrix @ unity_transform_matrix @ inverse_conjugation_matrix
 
 
-def door_scale_and_translation_min(door: dict, wall: dict):
+def process_door_polygon(
+    door: dict, wall_width: float, door_thickness: float = 0.02
+) -> Tuple[Scale, Point3]:
     """
-    Returns:
-      scale_xyz: Scale(sx, sy, sz)
-      translation_from_wall_center: Point3(x, y, z)
+    Extracts the door scale from the doorÄs 'holePolygon', and uses wall width to compute the doors translation
+    with the wall as its reference frame
 
-    Conventions:
-    - Wall local X runs along the bottom edge of the wall polygon (first bottom vert -> second).
-    - Y is up; Z lies in the wall plane (normal is orthogonal, not used here).
-    - Returned Point3 is measured from the *horizontal middle of the wall* (X=0 at wall center).
-    - Thickness isn’t encoded in ProcTHOR; we set scale.z = 0.01 (or whatever tiny depth you use).
+    :param door: dictionary of the door
+    :param wall_width: width of the wall
+
+    :returns: Scale representing the doors geometry and Point3 representing the doors position from the walls perspective
     """
 
-    # ---- Validate wall quad & get horizontal length (L) ----
-    polygon = wall["polygon"]
-    xz_sets = {}
-    for p in polygon:
-        key = (float(p["x"]), float(p["z"]))
-        xz_sets.setdefault(key, []).append(float(p["y"]))
+    door_polygon = door["holePolygon"]
+    x0, y0 = float(door_polygon[0]["x"]), float(door_polygon[0]["y"])
+    x1, y1 = float(door_polygon[1]["x"]), float(door_polygon[1]["y"])
 
-    if len(xz_sets) != 2:
-        raise ValueError(
-            "Wall polygon should have exactly two unique (x,z) positions (vertical quad expected)."
-        )
-
-    (x1, z1), y_coords1 = list(xz_sets.items())[0]
-    (x2, z2), y_coords2 = list(xz_sets.items())[1]
-    L = math.hypot(x2 - x1, z2 - z1)
-
-    # ---- Door scale from hole rectangle (wall-local) ----
-    hp = door["holePolygon"]
-    x0, y0 = float(hp[0]["x"]), float(hp[0]["y"])
-    x1, y1 = float(hp[1]["x"]), float(hp[1]["y"])
     xmin, xmax = (x0, x1) if x0 <= x1 else (x1, x0)
     ymin, ymax = (y0, y1) if y0 <= y1 else (y1, y0)
 
-    width = xmax - xmin
-    height = ymax - ymin
-    scale_xyz = Scale(width, height, 0.01)
+    door_width = xmax - xmin
+    door_height = ymax - ymin
+    door_scale = Scale(door_width, door_height, door_thickness)
 
-    # ---- Door center, but expressed from the wall's horizontal *center* ----
-    xc_end_anchored = 0.5 * (xmin + xmax)  # measured from start of wall local X
-    yc = 0.5 * (ymin + ymax)  # measured from wall bottom
-    xc_centered = xc_end_anchored - 0.5 * L  # re-center X so 0 is the wall midpoint
+    # Door center origin expressed from the wall's horizontal center. Unity's wall origin is in one of the corners
+    x_origin_wall_corner = 0.5 * (xmin + xmax)
+    y_origin = 0.5 * (ymin + ymax)
+    x_origin = x_origin_wall_corner - 0.5 * wall_width
 
-    return scale_xyz, Point3(xc_centered, yc, 0.0)
+    return door_scale, Point3(x_origin, y_origin, 0.0)
 
 
 @dataclass
 class ProcTHORParser:
     file_path: str
-
     session: Session
 
-    def import_room(self, room) -> Tuple[World, TransformationMatrix]:
-        room_name = room["roomType"]
+    def import_room(self, room: dict) -> Tuple[World, TransformationMatrix]:
+        """
+        Processes a room dictionary by creating a region from the 'floorPolygon'.
+
+        :param room: room dictionary
+
+        :returns: Room World and Transformation Matrix
+        """
         room_id = room["id"].split("|")[-1]
-        room_name = f"{room_name}_{room_id}"
-        room_name = PrefixedName(room_name)
-        reference_frame = Body(name=room_name)
+        room_name = PrefixedName(f"{room["roomType"]}_{room_id}")
 
-        room_polytopes = room["floorPolygon"]
-
+        # converting unity coordinates to semantic digital twin coordinates
         room_polytope: List[Point3] = [
-            Point3(v["z"], -v["x"], v["y"]) for v in room_polytopes
+            Point3(v["z"], -v["x"], v["y"]) for v in room["floorPolygon"]
         ]
 
         polytope_length = len(room_polytope)
-        cx = sum(v.x.to_np() for v in room_polytope) / polytope_length
-        cy = sum(v.y.to_np() for v in room_polytope) / polytope_length
-        cz = sum(v.z.to_np() for v in room_polytope) / polytope_length
+        x_center = sum(v.x.to_np() for v in room_polytope) / polytope_length
+        y_center = sum(v.y.to_np() for v in room_polytope) / polytope_length
+        z_center = sum(v.z.to_np() for v in room_polytope) / polytope_length
 
-        center = (cx, cy, cz)
+        center_point = Point3(x_center, y_center, z_center)
 
         centered_polytope = [
-            Point3(v.x.to_np() - cx, v.y.to_np() - cy, v.z.to_np() - cz)
+            Point3(
+                v.x.to_np() - x_center, v.y.to_np() - y_center, v.z.to_np() - z_center
+            )
             for v in room_polytope
         ]
 
-        min_height = min(v.y.to_np() for v in room_polytope)
-        max_height = max(v.y.to_np() for v in room_polytope)
-
-        points_2d = np.array([[p.x.to_np(), p.y.to_np()] for p in centered_polytope])
-        polytope = Polytope.from_2d_points(points_2d)
-        region_event = polytope.maximum_inner_box().to_simple_event().as_composite_set()
-
-        region_event = region_event.update_variables(
-            {
-                Continuous("x_0"): SpatialVariables.x.value,
-                Continuous("x_1"): SpatialVariables.y.value,
-            }
-        )
-        region_event.fill_missing_variables([SpatialVariables.z.value])
-        floor_event = SimpleEvent(
-            {
-                SpatialVariables.z.value: closed(min_height - 0.01, max_height + 0.01),
-            }
-        ).as_composite_set()
-        floor_event.fill_missing_variables(SpatialVariables.xz)
-
-        region_event = region_event & floor_event
-
-        region_bb_collection = BoundingBoxCollection.from_event(region_event)
-
-        region_shapes = region_bb_collection.as_shapes(reference_frame=reference_frame)
-
-        region = Region(
+        region = Region.from_3d_points(
+            points_3d=centered_polytope,
+            drop_dimension=SpatialVariables.z,
             name=PrefixedName(room_name.name + "_region"),
-            areas=region_shapes,
-            reference_frame=reference_frame,
+            reference_frame=Body(name=room_name),
         )
 
         room_factory = RoomFactory(name=room_name, region=region)
 
-        transform = TransformationMatrix.from_xyz_rpy(
-            center[0], center[1], center[2], 0, 0, 0
-        )
+        transform = TransformationMatrix.from_point_rotation_matrix(center_point)
 
         return room_factory.create(), transform
 
-    def import_object(self, obj) -> Tuple[World, TransformationMatrix]:
+    def import_object(self, obj: dict) -> Tuple[World, TransformationMatrix]:
+        """
+        Processes an object dictionary by querying its world from the database using its 'asset_id', and recursively
+        importing its children. If the object is not found inside the database, a virtual body is created and the
+        children are still processed
+
+        :param obj: object dictionary
+
+        :returns: Object World and Transformation Matrix
+        """
         asset_id = obj["assetId"]
 
         body_world: World = get_world_by_prefixed_name(self.session, name=asset_id)
 
         if body_world is None:
+            logging.error(
+                f"Could not find asset {asset_id} in the database. Using virtual body and proceeding to process children"
+            )
             body_world = World(name=asset_id)
             body_world_root = Body(name=PrefixedName(asset_id))
             body_world.add_body(body_world_root)
@@ -221,13 +208,11 @@ class ProcTHORParser:
             obj["rotation"]["z"],
         ).to_np()
 
-        body_transform = unity4x4_to_target4x4(body_transform)
-
-        rotation = Rotation.from_matrix(body_transform[:3, :3]).as_quat()
+        body_transform = unity4x4_to_sdt4x4(body_transform)
 
         body_transform = TransformationMatrix.from_point_rotation_matrix(
             Point3(*body_transform[:3, 3]),
-            RotationMatrix.from_quaternion(Quaternion.from_iterable(rotation)),
+            RotationMatrix(body_transform),
         )
 
         for child in obj.get("children", {}):
@@ -243,38 +228,52 @@ class ProcTHORParser:
 
     @staticmethod
     def group_walls_by_polygon(
-        remaining_walls: List[Dict],
-    ) -> List[Wall]:
+        walls_without_doors: List[Dict],
+    ) -> List[ProcthorWall]:
         """
-        Groups walls with identical polygons (order-invariant) into pairs -> Wall([w1, w2]).
-        Returns (paired_walls, leftovers) where leftovers are any unpaired walls.
+        Groups walls with identical polygons (order-invariant) into pairs -> ProcthorWall(walls=[w1, w2]).
+        Asserts that all doors input can be paired without any leftovers, since each physical wall in procthor
+        consists of two polygons.
+
+        :param walls_without_doors: List of walls without doors
+
+        :return: List of ProcthorWall
         """
 
         def polygon_key(poly):
-            # Treat as a set of points so ordering doesn’t matter
             return frozenset((p["x"], p["y"], p["z"]) for p in poly)
 
         groups: Dict[frozenset, List[Dict]] = {}
-        for w in remaining_walls:
+        for w in walls_without_doors:
             key = polygon_key(w.get("polygon", []))
             groups.setdefault(key, []).append(w)
 
-        paired: List[Wall] = []
+        paired_walls: List[ProcthorWall] = []
         for walls in groups.values():
             i = 0
             while i + 1 < len(walls):
-                paired.append(Wall(walls=[walls[i], walls[i + 1]]))
+                paired_walls.append(ProcthorWall(walls=[walls[i], walls[i + 1]]))
                 i += 2
             if i < len(walls):
                 raise AssertionError(
-                    "Apparently there are cases were there really is only one wall, not two with the same corners. This case may need to be handled now"
+                    "There are cases were a physical wall is represented by only one polygon. This case may need to be handled now"
                 )
 
-        return paired
+        return paired_walls
 
-    def group_doors_with_walls(
+    def process_door_wall_combinations(
         self, doors: List[Dict], walls: List[Dict]
-    ) -> List[Wall]:
+    ) -> List[ProcthorWall]:
+        """
+        Processes grouped walls and doors into one ProcthorWall. This is done by first looking for wall references in
+        the doors 'wall0' and 'wall1'. the remaining walls are grouped by matching polygons.
+
+        :param doors: List of door dictionaries
+        :param walls: List of wall dictionaries
+
+        :returns: List of ProcthorWall
+        """
+
         walls_by_id = {w["id"]: w for w in walls}
         used_wall_ids = set()
         door_groups = []
@@ -289,7 +288,7 @@ class ProcTHORParser:
                 if w:
                     found.append(w)
                     used_wall_ids.add(wid)
-            door_groups.append(Wall(doors=[d], walls=found))
+            door_groups.append(ProcthorWall(doors=[d], walls=found))
 
         remaining_walls = [w for w in walls if w["id"] not in used_wall_ids]
 
@@ -300,7 +299,19 @@ class ProcTHORParser:
         return door_groups
 
     @staticmethod
-    def get_polygon_scale_and_center(polygon):
+    def process_wall_polygon(
+        polygon: List[Dict], wall_thickness: float = 0.02
+    ) -> Tuple[Scale, TransformationMatrix]:
+        """
+        Constructs wall scale and transform from wall polygon, with its origins height on y=0
+        Transform is computed using the centerpoint of the wall polygon, and calculating the yaw using atan2(dz, -dx)
+
+        :param polygon: List of wall polygon dictionaries
+        :param wall_thickness: Thickness of wall polygon, defaults to 0.02
+
+        :returns: Scale, TransformationMatrix
+        """
+
         xz_sets = {}
         for p in polygon:
             key = (float(p["x"]), float(p["z"]))
@@ -321,51 +332,70 @@ class ProcTHORParser:
         width = math.hypot(dx, dz)
 
         # Center
-        cx = (x1 + x2) * 0.5
-        cy = (min_y + max_y) * 0.5
-        cz = (z1 + z2) * 0.5
+        x_center = (x1 + x2) * 0.5
+        z_center = (z1 + z2) * 0.5
 
         # Yaw of outward normal (Unity LH): n = up × along = (dz, 0, -dx)
         yaw = math.atan2(dz, -dx)
 
-        thickness = 0.02
-        scale = Scale(x=width, y=height, z=thickness)
-        transform = TransformationMatrix.from_xyz_rpy(cx, cy, cz, 0.0, yaw, 0)
+        scale = Scale(x=width, y=height, z=wall_thickness)
+        transform = TransformationMatrix.from_xyz_rpy(
+            x_center, 0, z_center, 0.0, yaw, 0
+        )
         return scale, transform
 
-    def import_walls(self, wall: Wall) -> Tuple[World, TransformationMatrix]:
+    def import_walls(
+        self, procthor_wall: ProcthorWall
+    ) -> Tuple[World, TransformationMatrix]:
+        """
+        Takes a ProcthorWall object and processes it. The wall polygon is used to create a box of that size, and
+         if ProcthorWall also has a door, a hole in the shape of a that door is cut out of the wall. Then a door
+         is created and placed at the correct position as the walls child.
 
-        room_numbers = [w["id"].split("|")[1] for w in wall.walls]
-        wall_corners = [w["id"].split("|")[2:] for w in wall.walls][0]
+        :param procthor_wall: ProcthorWall object
+
+        :return: World, TransformationMatrix
+        """
+
+        # In unity there are always two wall polygons, one for each side of the physical wall. these walls are both
+        # referenced inside the wall dictionary as "wall0", and "wall1". The hole polygon of the door is defined
+        # from the corner origin of the wall0 polygon, so we need to use that wall. If we use the other one, hole is
+        # on the wrong side of the wall.
+        if procthor_wall.doors:
+            used_wall = (
+                procthor_wall.walls[0]
+                if procthor_wall.walls[0]["roomId"] == procthor_wall.doors[0]["wall0"]
+                else procthor_wall.walls[1]
+            )
+        else:
+            used_wall = procthor_wall.walls[0]
+
+        room_numbers = [w["id"].split("|")[1] for w in procthor_wall.walls]
+        wall_corners = used_wall["id"].split("|")[2:]
         wall_name = PrefixedName(
             f"wall_{wall_corners[0]}_{wall_corners[1]}_{wall_corners[2]}_{wall_corners[3]}_room{room_numbers[0]}_room{room_numbers[1]}"
         )
 
-        if wall.doors:
-            used_wall = wall.walls[0] if wall.walls[0]["roomId"] == wall.doors[0]["wall0"] else wall.walls[1]
-        else:
-            used_wall = wall.walls[0]
+        wall_scale, wall_transform = self.process_wall_polygon(used_wall["polygon"])
 
-        old_wall_scale, old_wall_transform = self.get_polygon_scale_and_center(
-            used_wall["polygon"]
-        )
+        # Scale cannot be negative, so the usual minus in front of wall_scale.x omitted
+        wall_scale = Scale(wall_scale.z, wall_scale.x, wall_scale.y)
 
-        wall_scale = Scale(old_wall_scale.z, old_wall_scale.x, old_wall_scale.y)
+        wall_transform = unity4x4_to_sdt4x4(wall_transform.to_np())
 
-        wall_transform = unity4x4_to_target4x4(old_wall_transform.to_np())
-
-        position = wall_transform[:3, 3]
-        rotation = Rotation.from_matrix(wall_transform[:3, :3]).as_quat()
-
+        # The wall is artificially set to z=0 here, because
+        # 1. as of now, procthor house floors have the same z value
+        # 2. Since doors origins are in 3d center, positioning the door correctly at the floor given potentially varying
+        #    wall heights is unnecessarily complex given the assumption stated in 1.
         wall_transform = TransformationMatrix.from_point_rotation_matrix(
-            Point3(position[0], position[1], 0),
-            RotationMatrix.from_quaternion(Quaternion.from_iterable(rotation)),
+            Point3(*wall_transform[:3, 3]),
+            RotationMatrix(wall_transform),
         )
 
         door_factories = []
         door_transforms = []
 
-        for door in wall.doors:
+        for door in procthor_wall.doors:
             room_numbers = door["id"].split("|")[1:]
 
             door_name = PrefixedName(
@@ -375,29 +405,19 @@ class ProcTHORParser:
                 f"{door["assetId"]}_room{room_numbers[0]}_room{room_numbers[1]}_handle"
             )
 
-            door_scale, old_door_transform = door_scale_and_translation_min(
-                door, used_wall
+            # In unity, doors are defined as holes in the wall, so we express them as children of walls.
+            # This means we just need to translate them, and can assume no rotation
+            door_scale, door_position = process_door_polygon(
+                door, wall_width=wall_scale.y
             )
-
-            print("---------------")
-            print(f"Wall Scale: {old_wall_scale}")
-            print(f"Door Scale: {door_scale}")
-            print(f"Door Translation: {old_door_transform.to_np()}")
 
             door_scale = Scale(door_scale.z, door_scale.x, door_scale.y)
 
-            # door_position = old_door_transform.to_position().to_np()
-
             door_position = Point3(
-                old_door_transform.z.to_np(),
-                -old_door_transform.x.to_np(),
-                old_door_transform.y.to_np(),
+                door_position.z.to_np(),
+                -door_position.x.to_np(),
+                door_position.y.to_np(),
             )
-
-            # relative_door_position = door_position - wall_transform.to_position()
-            # door_position = unity4x4_to_target4x4(old_door_transform)[3:, 3]
-
-            # rotation = Rotation.from_matrix(door_transform[:3, :3]).as_quat()
 
             door_transform = TransformationMatrix.from_point_rotation_matrix(
                 door_position,
@@ -424,6 +444,12 @@ class ProcTHORParser:
         return wall_factory.create(), wall_transform
 
     def parse(self) -> World:
+        """
+        Parses a JSON file from procthor into a world.
+        Rooms are represented as Regions
+        Walls and doors are constructed from the supplied polygons
+        Objects are imported from the database
+        """
         with open(self.file_path) as f:
             house = json.load(f)
         house_name = self.file_path.split("/")[-1].split(".")[0]
@@ -453,10 +479,12 @@ class ProcTHORParser:
         doors = house["doors"]
         walls = house["walls"]
 
-        walls = self.group_doors_with_walls(doors, walls)
+        procthor_walls: List[ProcthorWall] = self.process_door_wall_combinations(
+            doors, walls
+        )
 
-        for index, wall in enumerate(walls):
-            wall_world, wall_transform = self.import_walls(wall)
+        for procthor_wall in procthor_walls:
+            wall_world, wall_transform = self.import_walls(procthor_wall)
             wall_connection = FixedConnection(
                 parent=world.root,
                 child=wall_world.root,
@@ -470,6 +498,10 @@ class ProcTHORParser:
 def get_world_by_prefixed_name(
     session: Session, name: str, prefix: Optional[str] = None
 ) -> Optional[World]:
+    """
+    To be deleted as soon as ORM fully integrated the EQL interface
+    """
+
     # Helper to build the name filter for PrefixedNameDAO
     def pn_filter():
         base = PrefixedNameDAO.name == name

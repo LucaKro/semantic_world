@@ -625,11 +625,6 @@ class WallFactory(ViewFactory[Wall]):
                 0,
             )
 
-            print("---------------")
-            print(f"Wall Scale: {self.scale}")
-            print(f"Door Scale: {door_factory.scale}")
-            print(f"Door Translation: {transform.to_position().to_np()}")
-
             connection = RevoluteConnection(
                 parent=wall_world.root,
                 child=door_body,

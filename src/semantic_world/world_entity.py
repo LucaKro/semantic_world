@@ -10,6 +10,10 @@ from typing import List, Optional, TYPE_CHECKING, Set, get_args, get_type_hints,
 import numpy as np
 import rustworkx
 from numpy import ndarray
+from random_events.interval import closed
+from random_events.polytope import Polytope
+from random_events.product_algebra import SimpleEvent
+from random_events.variable import Continuous
 from typing_extensions import Self
 
 from .geometry import Shape, BoundingBox, BoundingBoxCollection
@@ -34,6 +38,7 @@ from .spatial_types.spatial_types import Point3
 from .spatial_types.spatial_types import TransformationMatrix, Expression
 from .types import NpMatrix4x4
 from .utils import IDGenerator
+from .variables import SpatialVariables
 
 if TYPE_CHECKING:
     from .world import World
@@ -317,6 +322,68 @@ class Region(WorldEntity):
         """
         bbs = [area.as_bounding_box(reference_frame) for area in self.areas]
         return BoundingBoxCollection(bbs)
+
+    @classmethod
+    def from_3d_points(
+        cls,
+        points_3d: List[Point3],
+        drop_dimension: SpatialVariables,
+        name: Optional[PrefixedName] = None,
+        reference_frame: Optional[Body] = None,
+        min_floor_thickness: float = 0.0001,
+    ):
+
+        if drop_dimension == SpatialVariables.x:
+            x_0 = SpatialVariables.y.value
+            x_1 = SpatialVariables.z.value
+            min_height, max_height = min(v.x.to_np() for v in points_3d), max(
+                v.x.to_np() for v in points_3d
+            )
+            points_2d = np.array([[p.y.to_np(), p.z.to_np()] for p in points_3d])
+        elif drop_dimension == SpatialVariables.y:
+            x_0 = SpatialVariables.x.value
+            x_1 = SpatialVariables.z.value
+            min_height, max_height = min(v.y.to_np() for v in points_3d), max(
+                v.y.to_np() for v in points_3d
+            )
+            points_2d = np.array([[p.x.to_np(), p.z.to_np()] for p in points_3d])
+        else:
+            x_0 = SpatialVariables.x.value
+            x_1 = SpatialVariables.y.value
+            min_height, max_height = min(v.z.to_np() for v in points_3d), max(
+                v.z.to_np() for v in points_3d
+            )
+            points_2d = np.array([[p.x.to_np(), p.y.to_np()] for p in points_3d])
+
+        polytope = Polytope.from_2d_points(points_2d)
+        region_event = polytope.maximum_inner_box().to_simple_event().as_composite_set()
+
+        region_event = region_event.update_variables(
+            {
+                Continuous("x_0"): x_0,
+                Continuous("x_1"): x_1,
+            }
+        )
+        region_event.fill_missing_variables([drop_dimension.value])
+        floor_event = SimpleEvent(
+            {
+                SpatialVariables.z.value: closed(
+                    min_height - min_floor_thickness, max_height + min_floor_thickness
+                ),
+            }
+        ).as_composite_set()
+        floor_event.fill_missing_variables(SpatialVariables.xz)
+
+        region_event = region_event & floor_event
+
+        region_bb_collection = BoundingBoxCollection.from_event(region_event)
+
+        region_shapes = region_bb_collection.as_shapes(reference_frame=reference_frame)
+
+        return cls(
+            name=name,
+            areas=region_shapes,
+            reference_frame=reference_frame)
 
 
 @dataclass(unsafe_hash=True)
