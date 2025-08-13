@@ -82,6 +82,54 @@ def unity4x4_to_target4x4(M_u):
     return conjugation_matrix @ M_u @ inverse_conjugation_matrix
 
 
+def door_scale_and_translation_min(door: dict, wall: dict):
+    """
+    Returns:
+      scale_xyz: Scale(sx, sy, sz)
+      translation_from_wall_center: Point3(x, y, z)
+
+    Conventions:
+    - Wall local X runs along the bottom edge of the wall polygon (first bottom vert -> second).
+    - Y is up; Z lies in the wall plane (normal is orthogonal, not used here).
+    - Returned Point3 is measured from the *horizontal middle of the wall* (X=0 at wall center).
+    - Thickness isn’t encoded in ProcTHOR; we set scale.z = 0.01 (or whatever tiny depth you use).
+    """
+
+    # ---- Validate wall quad & get horizontal length (L) ----
+    polygon = wall["polygon"]
+    xz_sets = {}
+    for p in polygon:
+        key = (float(p["x"]), float(p["z"]))
+        xz_sets.setdefault(key, []).append(float(p["y"]))
+
+    if len(xz_sets) != 2:
+        raise ValueError(
+            "Wall polygon should have exactly two unique (x,z) positions (vertical quad expected)."
+        )
+
+    (x1, z1), y_coords1 = list(xz_sets.items())[0]
+    (x2, z2), y_coords2 = list(xz_sets.items())[1]
+    L = math.hypot(x2 - x1, z2 - z1)
+
+    # ---- Door scale from hole rectangle (wall-local) ----
+    hp = door["holePolygon"]
+    x0, y0 = float(hp[0]["x"]), float(hp[0]["y"])
+    x1, y1 = float(hp[1]["x"]), float(hp[1]["y"])
+    xmin, xmax = (x0, x1) if x0 <= x1 else (x1, x0)
+    ymin, ymax = (y0, y1) if y0 <= y1 else (y1, y0)
+
+    width = xmax - xmin
+    height = ymax - ymin
+    scale_xyz = Scale(width, height, 0.01)
+
+    # ---- Door center, but expressed from the wall's horizontal *center* ----
+    xc_end_anchored = 0.5 * (xmin + xmax)  # measured from start of wall local X
+    yc = 0.5 * (ymin + ymax)  # measured from wall bottom
+    xc_centered = xc_end_anchored - 0.5 * L  # re-center X so 0 is the wall midpoint
+
+    return scale_xyz, Point3(xc_centered, yc, 0.0)
+
+
 @dataclass
 class ProcTHORParser:
     file_path: str
@@ -293,13 +341,16 @@ class ProcTHORParser:
             f"wall_{wall_corners[0]}_{wall_corners[1]}_{wall_corners[2]}_{wall_corners[3]}_room{room_numbers[0]}_room{room_numbers[1]}"
         )
 
-        idx = 0 if room_numbers[0] > room_numbers[1] else 1
+        if wall.doors:
+            used_wall = wall.walls[0] if wall.walls[0]["roomId"] == wall.doors[0]["wall0"] else wall.walls[1]
+        else:
+            used_wall = wall.walls[0]
 
-        wall_scale, old_wall_transform = self.get_polygon_scale_and_center(
-            wall.walls[idx]["polygon"]
+        old_wall_scale, old_wall_transform = self.get_polygon_scale_and_center(
+            used_wall["polygon"]
         )
 
-        wall_scale = Scale(wall_scale.z, wall_scale.x, wall_scale.y)
+        wall_scale = Scale(old_wall_scale.z, old_wall_scale.x, old_wall_scale.y)
 
         wall_transform = unity4x4_to_target4x4(old_wall_transform.to_np())
 
@@ -324,23 +375,32 @@ class ProcTHORParser:
                 f"{door["assetId"]}_room{room_numbers[0]}_room{room_numbers[1]}_handle"
             )
 
-            door_scale, old_door_transform = self.get_polygon_scale_and_center(
-                door["holePolygon"]
+            door_scale, old_door_transform = door_scale_and_translation_min(
+                door, used_wall
             )
+
+            print("---------------")
+            print(f"Wall Scale: {old_wall_scale}")
+            print(f"Door Scale: {door_scale}")
+            print(f"Door Translation: {old_door_transform.to_np()}")
 
             door_scale = Scale(door_scale.z, door_scale.x, door_scale.y)
 
-            door_position = old_door_transform.to_position().to_np()
+            # door_position = old_door_transform.to_position().to_np()
 
-            door_position = Point3(door_position[2], -door_position[0], door_position[1])
+            door_position = Point3(
+                old_door_transform.z.to_np(),
+                -old_door_transform.x.to_np(),
+                old_door_transform.y.to_np(),
+            )
 
-            relative_door_position = door_position - wall_transform.to_position()
-            # door_transform = unity4x4_to_target4x4(door_transform.to_np())
+            # relative_door_position = door_position - wall_transform.to_position()
+            # door_position = unity4x4_to_target4x4(old_door_transform)[3:, 3]
 
             # rotation = Rotation.from_matrix(door_transform[:3, :3]).as_quat()
 
             door_transform = TransformationMatrix.from_point_rotation_matrix(
-                Point3(0, relative_door_position.y, relative_door_position.z),
+                door_position,
             )
 
             # I think a double door factory makes sense here, since it allows us to make assumptions about joints, scales, positions etc here
@@ -396,14 +456,13 @@ class ProcTHORParser:
         walls = self.group_doors_with_walls(doors, walls)
 
         for index, wall in enumerate(walls):
-            if index == 2:
-                wall_world, wall_transform = self.import_walls(wall)
-                wall_connection = FixedConnection(
-                    parent=world.root,
-                    child=wall_world.root,
-                    origin_expression=wall_transform,
-                )
-                world.merge_world(wall_world, wall_connection)
+            wall_world, wall_transform = self.import_walls(wall)
+            wall_connection = FixedConnection(
+                parent=world.root,
+                child=wall_world.root,
+                origin_expression=wall_transform,
+            )
+            world.merge_world(wall_world, wall_connection)
 
         return world
 

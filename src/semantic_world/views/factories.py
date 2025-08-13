@@ -509,8 +509,6 @@ class WallFactory(ViewFactory[Wall]):
     adjacent_rooms: List[Room] = field(default_factory=list)
 
     def create(self) -> World:
-        wall_event = event_from_scale(self.scale).as_composite_set()
-
         x_interval = closed(-self.scale.x / 2, self.scale.x / 2)
         y_interval = closed(-self.scale.y / 2, self.scale.y / 2)
         z_interval = closed(0, self.scale.z)
@@ -536,11 +534,6 @@ class WallFactory(ViewFactory[Wall]):
             handle_position: ndarray[float] = (
                 door_view.handle.body.parent_connection.origin_expression.to_position().to_np()
             )
-
-            print("---------------")
-            print(f"Wall Scale: {self.scale}")
-            print(f"Door Scale: {door_factory.scale}")
-            print(f"Door Transform: {door_transform.to_position().to_np()}")
 
             offset = -np.sign(handle_position[1]) * (door_factory.scale.y / 2)
             door_position = door_transform.to_np()[:3, 3] + np.array([0, offset, 0])
@@ -631,6 +624,11 @@ class WallFactory(ViewFactory[Wall]):
                 0,
                 0,
             )
+
+            print("---------------")
+            print(f"Wall Scale: {self.scale}")
+            print(f"Door Scale: {door_factory.scale}")
+            print(f"Door Translation: {transform.to_position().to_np()}")
 
             connection = RevoluteConnection(
                 parent=wall_world.root,
