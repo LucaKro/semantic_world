@@ -4,6 +4,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from typing import List, Dict, Tuple
+
 # Python
 from typing import Optional
 
@@ -17,6 +18,7 @@ from random_events.variable import Continuous
 from sqlalchemy import create_engine
 from sqlalchemy import select, exists, and_, or_
 from sqlalchemy.orm import Session
+from scipy.spatial.transform import Rotation
 
 from semantic_world.adapters.viz_marker import VizMarkerPublisher
 from semantic_world.connections import FixedConnection
@@ -33,6 +35,8 @@ from semantic_world.prefixed_name import PrefixedName
 from semantic_world.spatial_types.spatial_types import (
     TransformationMatrix,
     Point3,
+    RotationMatrix,
+    Quaternion,
 )
 from semantic_world.variables import SpatialVariables
 from semantic_world.views.factories import (
@@ -52,6 +56,32 @@ class Wall:
     walls: List[dict] = field(default_factory=list)
 
 
+def unity4x4_to_target4x4(M_u):
+    """
+    Convert a 4x4 Unity transform to the right-handed Z-up, X-forward system.
+    M_u: (4,4) float-like
+    returns: (4,4) numpy.ndarray
+    """
+    permutation_matrix = np.array(
+        [
+            [0, 0, 1],
+            [1, 0, 0],
+            [0, 1, 0],
+        ],
+        dtype=float,
+    )
+
+    reflection_vector = np.diag([1, -1, 1])
+    R = reflection_vector @ permutation_matrix
+    conjugation_matrix = np.eye(4)
+    conjugation_matrix[:3, :3] = R
+    inverse_conjugation_matrix = conjugation_matrix.T
+
+    M_u = np.asarray(M_u, float).reshape(4, 4)
+
+    return conjugation_matrix @ M_u @ inverse_conjugation_matrix
+
+
 @dataclass
 class ProcTHORParser:
     file_path: str
@@ -68,7 +98,7 @@ class ProcTHORParser:
         room_polytopes = room["floorPolygon"]
 
         room_polytope: List[Point3] = [
-            Point3(v["x"], v["y"], v["z"]) for v in room_polytopes
+            Point3(v["z"], -v["x"], v["y"]) for v in room_polytopes
         ]
 
         polytope_length = len(room_polytope)
@@ -86,7 +116,7 @@ class ProcTHORParser:
         min_height = min(v.y.to_np() for v in room_polytope)
         max_height = max(v.y.to_np() for v in room_polytope)
 
-        points_2d = np.array([[p.x.to_np(), p.z.to_np()] for p in centered_polytope])
+        points_2d = np.array([[p.x.to_np(), p.y.to_np()] for p in centered_polytope])
         polytope = Polytope.from_2d_points(points_2d)
         region_event = polytope.maximum_inner_box().to_simple_event().as_composite_set()
 
@@ -141,6 +171,15 @@ class ProcTHORParser:
             obj["rotation"]["x"],
             obj["rotation"]["y"],
             obj["rotation"]["z"],
+        ).to_np()
+
+        body_transform = unity4x4_to_target4x4(body_transform)
+
+        rotation = Rotation.from_matrix(body_transform[:3, :3]).as_quat()
+
+        body_transform = TransformationMatrix.from_point_rotation_matrix(
+            Point3(*body_transform[:3, 3]),
+            RotationMatrix.from_quaternion(Quaternion.from_iterable(rotation)),
         )
 
         for child in obj.get("children", {}):
@@ -243,10 +282,34 @@ class ProcTHORParser:
 
         thickness = 0.02
         scale = Scale(x=width, y=height, z=thickness)
-        transform = TransformationMatrix.from_xyz_rpy(cx, cy, cz, 0.0, 0.0, yaw)
+        transform = TransformationMatrix.from_xyz_rpy(cx, cy, cz, 0.0, yaw, 0)
         return scale, transform
 
     def import_walls(self, wall: Wall) -> Tuple[World, TransformationMatrix]:
+
+        room_numbers = [w["id"].split("|")[1] for w in wall.walls]
+        wall_corners = [w["id"].split("|")[2:] for w in wall.walls][0]
+        wall_name = PrefixedName(
+            f"wall_{wall_corners[0]}_{wall_corners[1]}_{wall_corners[2]}_{wall_corners[3]}_room{room_numbers[0]}_room{room_numbers[1]}"
+        )
+
+        idx = 0 if room_numbers[0] > room_numbers[1] else 1
+
+        wall_scale, old_wall_transform = self.get_polygon_scale_and_center(
+            wall.walls[idx]["polygon"]
+        )
+
+        wall_scale = Scale(wall_scale.z, wall_scale.x, wall_scale.y)
+
+        wall_transform = unity4x4_to_target4x4(old_wall_transform.to_np())
+
+        position = wall_transform[:3, 3]
+        rotation = Rotation.from_matrix(wall_transform[:3, :3]).as_quat()
+
+        wall_transform = TransformationMatrix.from_point_rotation_matrix(
+            Point3(position[0], position[1], 0),
+            RotationMatrix.from_quaternion(Quaternion.from_iterable(rotation)),
+        )
 
         door_factories = []
         door_transforms = []
@@ -261,8 +324,23 @@ class ProcTHORParser:
                 f"{door["assetId"]}_room{room_numbers[0]}_room{room_numbers[1]}_handle"
             )
 
-            door_scale, door_transform = self.get_polygon_scale_and_center(
+            door_scale, old_door_transform = self.get_polygon_scale_and_center(
                 door["holePolygon"]
+            )
+
+            door_scale = Scale(door_scale.z, door_scale.x, door_scale.y)
+
+            door_position = old_door_transform.to_position().to_np()
+
+            door_position = Point3(door_position[2], -door_position[0], door_position[1])
+
+            relative_door_position = door_position - wall_transform.to_position()
+            # door_transform = unity4x4_to_target4x4(door_transform.to_np())
+
+            # rotation = Rotation.from_matrix(door_transform[:3, :3]).as_quat()
+
+            door_transform = TransformationMatrix.from_point_rotation_matrix(
+                Point3(0, relative_door_position.y, relative_door_position.z),
             )
 
             # I think a double door factory makes sense here, since it allows us to make assumptions about joints, scales, positions etc here
@@ -270,21 +348,11 @@ class ProcTHORParser:
                 name=door_name,
                 scale=door_scale,
                 handle_factory=HandleFactory(name=handle_name),
-                handle_direction=Direction.X,
+                handle_direction=Direction.Y,
             )
 
             door_factories.append(door_factory)
             door_transforms.append(door_transform)
-
-        room_numbers = [w["id"].split("|")[1] for w in wall.walls]
-        wall_corners = [w["id"].split("|")[2:] for w in wall.walls][0]
-        wall_name = PrefixedName(
-            f"wall_{wall_corners[0]}_{wall_corners[1]}_{wall_corners[2]}_{wall_corners[3]}_room{room_numbers[0]}_room{room_numbers[1]}"
-        )
-
-        wall_scale, wall_transform = self.get_polygon_scale_and_center(
-            wall.walls[0]["polygon"]
-        )
 
         wall_factory = WallFactory(
             name=wall_name,
@@ -327,14 +395,15 @@ class ProcTHORParser:
 
         walls = self.group_doors_with_walls(doors, walls)
 
-        for wall in walls:
-            wall_world, wall_transform = self.import_walls(wall)
-            wall_connection = FixedConnection(
-                parent=world.root,
-                child=wall_world.root,
-                origin_expression=wall_transform,
-            )
-            world.merge_world(wall_world, wall_connection)
+        for index, wall in enumerate(walls):
+            if index == 2:
+                wall_world, wall_transform = self.import_walls(wall)
+                wall_connection = FixedConnection(
+                    parent=world.root,
+                    child=wall_world.root,
+                    origin_expression=wall_transform,
+                )
+                world.merge_world(wall_world, wall_connection)
 
         return world
 

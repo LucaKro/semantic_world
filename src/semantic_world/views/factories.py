@@ -511,6 +511,18 @@ class WallFactory(ViewFactory[Wall]):
     def create(self) -> World:
         wall_event = event_from_scale(self.scale).as_composite_set()
 
+        x_interval = closed(-self.scale.x / 2, self.scale.x / 2)
+        y_interval = closed(-self.scale.y / 2, self.scale.y / 2)
+        z_interval = closed(0, self.scale.z)
+
+        wall_event = SimpleEvent(
+            {
+                SpatialVariables.x.value: x_interval,
+                SpatialVariables.y.value: y_interval,
+                SpatialVariables.z.value: z_interval,
+            }
+        ).as_composite_set()
+
         for door_factory, door_transform in zip(
             self.door_factories, self.door_transforms
         ):
@@ -518,6 +530,29 @@ class WallFactory(ViewFactory[Wall]):
             temp_world.add_body(Body())
             door_world = door_factory.create()
             door: Door = door_world.get_views_by_type(Door)[0]
+
+            door_view: Door = door_world.get_views_by_type(Door)[0]
+
+            handle_position: ndarray[float] = (
+                door_view.handle.body.parent_connection.origin_expression.to_position().to_np()
+            )
+
+            print("---------------")
+            print(f"Wall Scale: {self.scale}")
+            print(f"Door Scale: {door_factory.scale}")
+            print(f"Door Transform: {door_transform.to_position().to_np()}")
+
+            offset = -np.sign(handle_position[1]) * (door_factory.scale.y / 2)
+            door_position = door_transform.to_np()[:3, 3] + np.array([0, offset, 0])
+
+            door_transform = TransformationMatrix.from_xyz_rpy(
+                door_position[0],
+                door_position[1],
+                door_position[2],
+                0,
+                0,
+                0,
+            )
 
             connection = FixedConnection(
                 parent=temp_world.root,
@@ -527,12 +562,12 @@ class WallFactory(ViewFactory[Wall]):
 
             temp_world.merge_world(door_world, connection)
 
-            assert door_factory.handle_direction in {Direction.X, Direction.NEGATIVE_X}, "Currently only handles are only supported in X direction"
+            assert door_factory.handle_direction in {Direction.Y, Direction.NEGATIVE_Y}, "Currently only handles are only supported in Y direction"
 
-            door_plane_spatial_variables = SpatialVariables.xy
-            door_thickness_spatial_variable = SpatialVariables.z.value
+            door_plane_spatial_variables = SpatialVariables.yz
+            door_thickness_spatial_variable = SpatialVariables.x.value
 
-            door_event = door.body.as_bounding_box_collection().event
+            door_event = door.body.as_bounding_box_collection(temp_world.root).event
             door_event = door_event.marginal(door_plane_spatial_variables)
             door_event.fill_missing_variables([door_thickness_spatial_variable])
 
@@ -595,7 +630,6 @@ class WallFactory(ViewFactory[Wall]):
                 0,
                 0,
                 0,
-                reference_frame=wall_world.root,
             )
 
             connection = RevoluteConnection(
