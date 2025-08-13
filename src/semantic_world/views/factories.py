@@ -3,10 +3,12 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import TypeVar, Generic
 
+import rclpy
 from numpy import ndarray
 from random_events.interval import Bound
 from random_events.product_algebra import *
 
+from semantic_world.adapters.viz_marker import VizMarkerPublisher
 from semantic_world.connections import (
     PrismaticConnection,
     FixedConnection,
@@ -32,6 +34,7 @@ from semantic_world.views import (
     SupportingSurface,
     Room,
     Wall,
+    DoubleDoor,
 )
 from semantic_world.world import World
 from semantic_world.world_entity import Body, Region
@@ -297,6 +300,48 @@ class DoorFactory(ViewFactory[Door]):
 
 
 @dataclass
+class DoubleDoorFactory(ViewFactory[Door]):
+    name: PrefixedName
+    handle_factory: HandleFactory
+    scale: Scale = field(default_factory=lambda: Scale(0.03, 1.0, 2.0))
+
+    def create(self) -> World:
+
+        one_door_scale = Scale(self.scale.x, self.scale.y / 2, self.scale.z)
+        handle_directions = [Direction.Y, Direction.NEGATIVE_Y]
+
+        door_factories = []
+
+        for index, direction in enumerate(handle_directions):
+            handle_factory_name = PrefixedName(self.name.name + f"_{index}_handle", self.name.prefix)
+            door_factory = DoorFactory(
+                name=PrefixedName(self.name.name + f"_{index}", self.name.prefix),
+                scale=one_door_scale,
+                handle_factory=HandleFactory(handle_factory_name, self.handle_factory.scale, self.handle_factory.thickness),
+                handle_direction=direction,
+            )
+            door_factories.append(door_factory)
+
+        world = World()
+        body = Body(name=self.name)
+        world.add_body(body)
+
+        for door_factory in door_factories:
+            y_direction: float = one_door_scale.y/2
+            if door_factory.handle_direction == Direction.Y:
+                y_direction = -y_direction
+
+            door_transform = TransformationMatrix.from_point_rotation_matrix(Point3(one_door_scale.x/2, y_direction, one_door_scale.z/2))
+
+            add_door_to_world(door_factory=door_factory, door_transform=door_transform, parent_world=world)
+
+        double_door_view = DoubleDoor(body=body, doors=world.get_views_by_type(Door))
+        world.add_view(double_door_view)
+
+        return world
+
+
+@dataclass
 class DrawerFactory(ViewFactory[Drawer]):
     name: PrefixedName
     handle_factory: HandleFactory
@@ -450,7 +495,7 @@ class RoomFactory(ViewFactory[Room]):
 class WallFactory(ViewFactory[Wall]):
     name: PrefixedName
     scale: Scale
-    door_factories: List[DoorFactory] = field(default_factory=list)
+    door_factories: List[Union[DoorFactory, DoubleDoorFactory]] = field(default_factory=list)
     door_transforms: List[TransformationMatrix] = field(default_factory=list)
     adjacent_rooms: List[Room] = field(default_factory=list)
 
@@ -473,35 +518,40 @@ class WallFactory(ViewFactory[Wall]):
             temp_world = World()
             temp_world.add_body(Body())
             door_world = door_factory.create()
-            door: Door = door_world.get_views_by_type(Door)[0]
 
-            door_view: Door = door_world.get_views_by_type(Door)[0]
-
-            door_transform = calculate_door_pivot_point(
-                door_view, door_transform, door_factory.scale
-            )
+            if isinstance(door_factory, DoorFactory):
+                doors: List[Door] = door_world.get_views_by_type(Door)
+                door_transform = calculate_door_pivot_point(
+                    doors[0], door_transform, door_factory.scale
+                )
+            elif isinstance(door_factory, DoubleDoorFactory):
+                doors = door_world.get_views_by_type(Door)
+                translation = door_transform.to_position().to_np()
+                door_transform = TransformationMatrix.from_point_rotation_matrix(Point3(translation[0], translation[1], 0))
 
             connection = FixedConnection(
                 parent=temp_world.root,
-                child=door.body,
+                child=door_world.root,
                 origin_expression=door_transform,
             )
 
             temp_world.merge_world(door_world, connection)
 
-            assert door_factory.handle_direction in {
-                Direction.Y,
-                Direction.NEGATIVE_Y,
-            }, "Currently only handles are only supported in Y direction"
+            if isinstance(door_factory, DoorFactory):
+                assert door_factory.handle_direction in {
+                    Direction.Y,
+                    Direction.NEGATIVE_Y,
+                }, "Currently only handles are only supported in Y direction"
 
             door_plane_spatial_variables = SpatialVariables.yz
             door_thickness_spatial_variable = SpatialVariables.x.value
 
-            door_event = door.body.as_bounding_box_collection(temp_world.root).event
-            door_event = door_event.marginal(door_plane_spatial_variables)
-            door_event.fill_missing_variables([door_thickness_spatial_variable])
+            for door in doors:
+                door_event = door.body.as_bounding_box_collection(temp_world.root).event
+                door_event = door_event.marginal(door_plane_spatial_variables)
+                door_event.fill_missing_variables([door_thickness_spatial_variable])
 
-            wall_event -= door_event
+                wall_event -= door_event
 
         bounding_box_collection = BoundingBoxCollection.from_event(wall_event)
 
@@ -525,7 +575,17 @@ class WallFactory(ViewFactory[Wall]):
         wall_world.add_view(wall)
 
         for door_factory, transform in zip(self.door_factories, self.door_transforms):
-            add_door_to_world(door_factory, transform, wall_world)
+            if isinstance(door_factory, DoorFactory):
+                add_door_to_world(door_factory, transform, wall_world)
+            elif isinstance(door_factory, DoubleDoorFactory):
+                door_world = door_factory.create()
+                translation = transform.to_position().to_np()
+                transform = TransformationMatrix.from_point_rotation_matrix(Point3(translation[0], translation[1], 0))
+                connection = FixedConnection(
+                    parent=wall_world.root, child=door_world.root, origin_expression=transform
+                )
+
+                wall_world.merge_world(door_world, connection)
 
         return wall_world
 
@@ -550,7 +610,6 @@ def add_door_to_world(
     }:
         lower_limits.position = 0.0
         upper_limits.position = np.pi / 2
-
 
     dof = parent_world.create_degree_of_freedom(
         PrefixedName(f"{door_body.name.name}_connection", door_body.name.prefix),

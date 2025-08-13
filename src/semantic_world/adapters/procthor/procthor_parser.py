@@ -37,6 +37,7 @@ from semantic_world.views.factories import (
     WallFactory,
     HandleFactory,
     Direction,
+    DoubleDoorFactory,
 )
 from semantic_world.world import World
 from semantic_world.world_entity import Body, Region
@@ -373,7 +374,6 @@ class ProcTHORParser:
 
         # Scale cannot be negative, so the usual minus in front of wall_scale.x omitted
         wall_scale = Scale(wall_scale.z, wall_scale.x, wall_scale.y)
-
         wall_transform = unity4x4_to_sdt4x4(wall_transform.to_np())
 
         # The wall is artificially set to z=0 here, because
@@ -391,11 +391,12 @@ class ProcTHORParser:
         for door in procthor_wall.doors:
             room_numbers = door["id"].split("|")[1:]
 
+            asset_id = door["assetId"]
             door_name = PrefixedName(
-                f"{door["assetId"]}_room{room_numbers[0]}_room{room_numbers[1]}"
+                f"{asset_id}_room{room_numbers[0]}_room{room_numbers[1]}"
             )
             handle_name = PrefixedName(
-                f"{door["assetId"]}_room{room_numbers[0]}_room{room_numbers[1]}_handle"
+                f"{asset_id}_room{room_numbers[0]}_room{room_numbers[1]}_handle"
             )
 
             # In unity, doors are defined as holes in the wall, so we express them as children of walls.
@@ -415,13 +416,19 @@ class ProcTHORParser:
                 door_position,
             )
 
-            # I think a double door factory makes sense here, since it allows us to make assumptions about joints, scales, positions etc here
-            door_factory = DoorFactory(
-                name=door_name,
-                scale=door_scale,
-                handle_factory=HandleFactory(name=handle_name),
-                handle_direction=Direction.Y,
-            )
+            if "double" in asset_id.lower():
+                door_factory = DoubleDoorFactory(
+                    name=door_name,
+                    scale=door_scale,
+                    handle_factory=HandleFactory(name=handle_name),
+                )
+            else:
+                door_factory = DoorFactory(
+                    name=door_name,
+                    scale=door_scale,
+                    handle_factory=HandleFactory(name=handle_name),
+                    handle_direction=Direction.Y,
+                )
 
             door_factories.append(door_factory)
             door_transforms.append(door_transform)
