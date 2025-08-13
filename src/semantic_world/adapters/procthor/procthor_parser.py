@@ -4,10 +4,7 @@ import math
 import os
 import time
 from dataclasses import dataclass, field
-from typing import List, Dict, Tuple
-
-# Python
-from typing import Optional
+from typing import Optional, List, Dict, Tuple
 
 import numpy as np
 import rclpy
@@ -106,6 +103,7 @@ def process_door_polygon(
 
     :param door: dictionary of the door
     :param wall_width: width of the wall
+    :param door_thickness: thickness of the door
 
     :returns: Scale representing the doors geometry and Point3 representing the doors position from the walls perspective
     """
@@ -134,7 +132,8 @@ class ProcTHORParser:
     file_path: str
     session: Session
 
-    def import_room(self, room: dict) -> Tuple[World, TransformationMatrix]:
+    @staticmethod
+    def import_room(room: dict) -> Tuple[World, TransformationMatrix]:
         """
         Processes a room dictionary by creating a region from the 'floorPolygon'.
 
@@ -208,12 +207,7 @@ class ProcTHORParser:
             obj["rotation"]["z"],
         ).to_np()
 
-        body_transform = unity4x4_to_sdt4x4(body_transform)
-
-        body_transform = TransformationMatrix.from_point_rotation_matrix(
-            Point3(*body_transform[:3, 3]),
-            RotationMatrix(body_transform),
-        )
+        body_transform = TransformationMatrix(unity4x4_to_sdt4x4(body_transform))
 
         for child in obj.get("children", {}):
             child_world, child_transform = self.import_object(child)
@@ -244,9 +238,9 @@ class ProcTHORParser:
             return frozenset((p["x"], p["y"], p["z"]) for p in poly)
 
         groups: Dict[frozenset, List[Dict]] = {}
-        for w in walls_without_doors:
-            key = polygon_key(w.get("polygon", []))
-            groups.setdefault(key, []).append(w)
+        for wall in walls_without_doors:
+            key = polygon_key(wall.get("polygon", []))
+            groups.setdefault(key, []).append(wall)
 
         paired_walls: List[ProcthorWall] = []
         for walls in groups.values():
@@ -274,12 +268,12 @@ class ProcTHORParser:
         :returns: List of ProcthorWall
         """
 
-        walls_by_id = {w["id"]: w for w in walls}
+        walls_by_id = {wall["id"]: wall for wall in walls}
         used_wall_ids = set()
         door_groups = []
 
-        for d in doors:
-            ids = [d.get("wall0"), d.get("wall1")]
+        for door in doors:
+            ids = [door.get("wall0"), door.get("wall1")]
             found = []
             for wid in ids:
                 if not wid:
@@ -288,7 +282,7 @@ class ProcTHORParser:
                 if w:
                     found.append(w)
                     used_wall_ids.add(wid)
-            door_groups.append(ProcthorWall(doors=[d], walls=found))
+            door_groups.append(ProcthorWall(doors=[door], walls=found))
 
         remaining_walls = [w for w in walls if w["id"] not in used_wall_ids]
 
@@ -335,7 +329,6 @@ class ProcTHORParser:
         x_center = (x1 + x2) * 0.5
         z_center = (z1 + z2) * 0.5
 
-        # Yaw of outward normal (Unity LH): n = up × along = (dz, 0, -dx)
         yaw = math.atan2(dz, -dx)
 
         scale = Scale(x=width, y=height, z=wall_thickness)
@@ -412,7 +405,6 @@ class ProcTHORParser:
             )
 
             door_scale = Scale(door_scale.z, door_scale.x, door_scale.y)
-
             door_position = Point3(
                 door_position.z.to_np(),
                 -door_position.x.to_np(),
@@ -458,8 +450,7 @@ class ProcTHORParser:
         world_root = Body(name=PrefixedName(house_name))
         world.add_body(world_root)
 
-        rooms = house["rooms"]
-        for room in rooms:
+        for room in house["rooms"]:
             room_world, room_transform = self.import_room(room)
             room_connection = FixedConnection(
                 parent=world.root,
@@ -468,8 +459,7 @@ class ProcTHORParser:
             )
             world.merge_world(room_world, room_connection)
 
-        objects = house["objects"]
-        for obj in objects:
+        for obj in house["objects"]:
             obj_world, obj_transform = self.import_object(obj)
             obj_connection = FixedConnection(
                 parent=world.root, child=obj_world.root, origin_expression=obj_transform

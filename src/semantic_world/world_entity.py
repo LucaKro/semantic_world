@@ -330,45 +330,55 @@ class Region(WorldEntity):
         drop_dimension: SpatialVariables,
         name: Optional[PrefixedName] = None,
         reference_frame: Optional[Body] = None,
-        min_floor_thickness: float = 0.0001,
-    ):
+    ) -> Self:
 
-        if drop_dimension == SpatialVariables.x:
-            x_0 = SpatialVariables.y.value
-            x_1 = SpatialVariables.z.value
-            min_height, max_height = min(v.x.to_np() for v in points_3d), max(
-                v.x.to_np() for v in points_3d
-            )
-            points_2d = np.array([[p.y.to_np(), p.z.to_np()] for p in points_3d])
-        elif drop_dimension == SpatialVariables.y:
-            x_0 = SpatialVariables.x.value
-            x_1 = SpatialVariables.z.value
-            min_height, max_height = min(v.y.to_np() for v in points_3d), max(
-                v.y.to_np() for v in points_3d
-            )
-            points_2d = np.array([[p.x.to_np(), p.z.to_np()] for p in points_3d])
-        else:
-            x_0 = SpatialVariables.x.value
-            x_1 = SpatialVariables.y.value
-            min_height, max_height = min(v.z.to_np() for v in points_3d), max(
-                v.z.to_np() for v in points_3d
-            )
-            points_2d = np.array([[p.x.to_np(), p.y.to_np()] for p in points_3d])
+        """
+        Constructs a region from a set of 3D points. Requires one dimension to be 'dropped', to create a 2s polygon.
+        The min and max point of the dropped dimension still contribute to the region, but are not considered when
+        calculating the polygon. 'minimum_dropped_dimension_thickness'
+
+        :param points_3d: List of 3D points.
+        :param drop_dimension: Dimension to be dropped to calculate the 2d polygon
+        :param name: Optional prefixed name for the region.
+        :param reference_frame: Optional reference frame.
+
+        :return: Region object.
+        """
+
+        # Deterministic axis order to preserve original branch behavior
+        axis_order = [SpatialVariables.x, SpatialVariables.y, SpatialVariables.z]
+
+        # Keep the two axes that aren't dropped, preserving XYZ order
+        kept_axes = [ax for ax in axis_order if ax is not drop_dimension]
+        x_0, x_1 = kept_axes  # these become x_0 and x_1
+
+        points_2d = np.array(
+            [[getattr(p, x_0.name).to_np(), getattr(p, x_1.name).to_np()] for p in points_3d]
+        )
+
+        min_dropped_dimension_thickness = min(getattr(p, drop_dimension.name).to_np() for p in points_3d)
+        max_dropped_dimension_thickness = max(getattr(p, drop_dimension.name).to_np() for p in points_3d)
+
+        if min_dropped_dimension_thickness == max_dropped_dimension_thickness:
+            # intervall should not be 0, adding a minimal thickness
+            min_dropped_dimension_thickness -= 0.00001
+            max_dropped_dimension_thickness *= 0.00001
 
         polytope = Polytope.from_2d_points(points_2d)
         region_event = polytope.maximum_inner_box().to_simple_event().as_composite_set()
 
         region_event = region_event.update_variables(
             {
-                Continuous("x_0"): x_0,
-                Continuous("x_1"): x_1,
+                Continuous("x_0"): x_0.value,
+                Continuous("x_1"): x_1.value,
             }
         )
+
         region_event.fill_missing_variables([drop_dimension.value])
         floor_event = SimpleEvent(
             {
-                SpatialVariables.z.value: closed(
-                    min_height - min_floor_thickness, max_height + min_floor_thickness
+                drop_dimension.value: closed(
+                    min_dropped_dimension_thickness, max_dropped_dimension_thickness
                 ),
             }
         ).as_composite_set()
@@ -380,11 +390,7 @@ class Region(WorldEntity):
 
         region_shapes = region_bb_collection.as_shapes(reference_frame=reference_frame)
 
-        return cls(
-            name=name,
-            areas=region_shapes,
-            reference_frame=reference_frame)
-
+        return cls(name=name, areas=region_shapes, reference_frame=reference_frame)
 
 @dataclass(unsafe_hash=True)
 class RootedView(View):

@@ -12,12 +12,13 @@ from semantic_world.connections import (
     FixedConnection,
     RevoluteConnection,
 )
-from semantic_world.geometry import Scale, BoundingBoxCollection
+from semantic_world.geometry import Scale, BoundingBoxCollection, Box
 from semantic_world.prefixed_name import PrefixedName
 from semantic_world.spatial_types.derivatives import DerivativeMap
 from semantic_world.spatial_types.spatial_types import (
     TransformationMatrix,
     Vector3,
+    Point3,
 )
 from semantic_world.utils import IDGenerator
 from semantic_world.variables import SpatialVariables
@@ -380,64 +381,7 @@ class DresserFactory(ViewFactory[Dresser]):
             container_world.merge_world(drawer_world, connection)
 
         for door_factory, transform in zip(self.door_factories, self.door_transforms):
-            door_world = door_factory.create()
-
-            door_view: Door = door_world.get_views_by_type(Door)[0]
-            door_body = door_view.body
-
-            parent_connection = door_view.handle.body.parent_connection
-            if parent_connection is None:
-                raise ValueError(
-                    "Handle's body does not have a parent_connection; cannot compute handle_position."
-                )
-            handle_position: ndarray[float] = (
-                parent_connection.origin_expression.to_position().to_np()
-            )
-
-            lower_limits = DerivativeMap[float]()
-            upper_limits = DerivativeMap[float]()
-            if door_factory.handle_direction in {
-                Direction.NEGATIVE_X,
-                Direction.NEGATIVE_Y,
-            }:
-                lower_limits.position = 0.0
-                upper_limits.position = np.pi / 2
-            else:
-                lower_limits.position = -np.pi / 2
-                upper_limits.position = 0.0
-
-            dof = container_world.create_degree_of_freedom(
-                PrefixedName(
-                    f"{door_body.name.name}_connection", door_body.name.prefix
-                ),
-                lower_limits,
-                upper_limits,
-            )
-
-            offset = -np.sign(handle_position[1]) * (door_factory.scale.y / 2)
-            door_position = transform.to_np()[:3, 3] + np.array([0, offset, 0])
-
-            pivot_point = TransformationMatrix.from_xyz_rpy(
-                door_position[0],
-                door_position[1],
-                door_position[2],
-                0,
-                0,
-                0,
-                reference_frame=container_world.root,
-            )
-
-            connection = RevoluteConnection(
-                parent=container_world.root,
-                child=door_body,
-                origin_expression=pivot_point,
-                multiplier=1.0,
-                offset=0.0,
-                axis=Vector3.Z(),
-                dof=dof,
-            )
-
-            container_world.merge_world(door_world, connection)
+            add_door_to_world(door_factory, transform, container_world)
 
         dresser_view = Dresser(
             name=self.name,
@@ -510,7 +454,7 @@ class WallFactory(ViewFactory[Wall]):
     door_transforms: List[TransformationMatrix] = field(default_factory=list)
     adjacent_rooms: List[Room] = field(default_factory=list)
 
-    def create(self) -> World:
+    def _create_wall_collision(self) -> List[Box]:
         x_interval = closed(-self.scale.x / 2, self.scale.x / 2)
         y_interval = closed(-self.scale.y / 2, self.scale.y / 2)
         z_interval = closed(0, self.scale.z)
@@ -533,20 +477,8 @@ class WallFactory(ViewFactory[Wall]):
 
             door_view: Door = door_world.get_views_by_type(Door)[0]
 
-            handle_position: ndarray[float] = (
-                door_view.handle.body.parent_connection.origin_expression.to_position().to_np()
-            )
-
-            offset = -np.sign(handle_position[1]) * (door_factory.scale.y / 2)
-            door_position = door_transform.to_np()[:3, 3] + np.array([0, offset, 0])
-
-            door_transform = TransformationMatrix.from_xyz_rpy(
-                door_position[0],
-                door_position[1],
-                door_position[2],
-                0,
-                0,
-                0,
+            door_transform = calculate_door_pivot_point(
+                door_view, door_transform, door_factory.scale
             )
 
             connection = FixedConnection(
@@ -573,8 +505,14 @@ class WallFactory(ViewFactory[Wall]):
 
         bounding_box_collection = BoundingBoxCollection.from_event(wall_event)
 
-        collision = bounding_box_collection.as_shapes()
-        body = Body(name=self.name, collision=collision, visual=collision)
+        wall_collision = bounding_box_collection.as_shapes()
+        return wall_collision
+
+    def create(self) -> World:
+
+        wall_collision = self._create_wall_collision()
+
+        body = Body(name=self.name, collision=wall_collision, visual=wall_collision)
 
         wall = Wall(
             name=self.name,
@@ -587,60 +525,76 @@ class WallFactory(ViewFactory[Wall]):
         wall_world.add_view(wall)
 
         for door_factory, transform in zip(self.door_factories, self.door_transforms):
-            door_world = door_factory.create()
-
-            door_view: Door = door_world.get_views_by_type(Door)[0]
-            door_body = door_view.body
-
-            handle_position: ndarray[float] = (
-                door_view.handle.body.parent_connection.origin_expression.to_position().to_np()
-            )
-
-            lower_limits = DerivativeMap[float]()
-            upper_limits = DerivativeMap[float]()
-            if door_factory.handle_direction in {
-                Direction.NEGATIVE_X,
-                Direction.NEGATIVE_Y,
-            }:
-                lower_limits.position = 0.0
-                upper_limits.position = np.pi / 2
-            else:
-                lower_limits.position = -np.pi / 2
-                upper_limits.position = 0.0
-
-            dof = wall_world.create_degree_of_freedom(
-                PrefixedName(
-                    f"{door_body.name.name}_connection", door_body.name.prefix
-                ),
-                lower_limits,
-                upper_limits,
-            )
-
-            offset = -np.sign(handle_position[1]) * (door_factory.scale.y / 2)
-            door_position = transform.to_np()[:3, 3] + np.array([0, offset, 0])
-
-            pivot_point = TransformationMatrix.from_xyz_rpy(
-                door_position[0],
-                door_position[1],
-                door_position[2],
-                0,
-                0,
-                0,
-            )
-
-            connection = RevoluteConnection(
-                parent=wall_world.root,
-                child=door_body,
-                origin_expression=pivot_point,
-                multiplier=1.0,
-                offset=0.0,
-                axis=Vector3.Z(),
-                dof=dof,
-            )
-
-            wall_world.merge_world(door_world, connection)
+            add_door_to_world(door_factory, transform, wall_world)
 
         return wall_world
+
+
+def add_door_to_world(
+    door_factory: DoorFactory, door_transform: TransformationMatrix, parent_world: World
+):
+    door_world = door_factory.create()
+
+    door_view: Door = door_world.get_views_by_type(Door)[0]
+    door_body = door_view.body
+
+    lower_limits = DerivativeMap[float]()
+    upper_limits = DerivativeMap[float]()
+
+    lower_limits.position = -np.pi / 2
+    upper_limits.position = 0.0
+
+    if door_factory.handle_direction in {
+        Direction.NEGATIVE_X,
+        Direction.NEGATIVE_Y,
+    }:
+        lower_limits.position = 0.0
+        upper_limits.position = np.pi / 2
+
+
+    dof = parent_world.create_degree_of_freedom(
+        PrefixedName(f"{door_body.name.name}_connection", door_body.name.prefix),
+        lower_limits,
+        upper_limits,
+    )
+
+    pivot_point = calculate_door_pivot_point(
+        door_view, door_transform, door_factory.scale
+    )
+
+    connection = RevoluteConnection(
+        parent=parent_world.root,
+        child=door_body,
+        origin_expression=pivot_point,
+        multiplier=1.0,
+        offset=0.0,
+        axis=Vector3.Z(),
+        dof=dof,
+    )
+
+    parent_world.merge_world(door_world, connection)
+
+
+def calculate_door_pivot_point(
+    door_view, door_transform: TransformationMatrix, scale: Scale
+) -> TransformationMatrix:
+    parent_connection = door_view.handle.body.parent_connection
+    if parent_connection is None:
+        raise ValueError(
+            "Handle's body does not have a parent_connection; cannot compute handle_position."
+        )
+    handle_position: ndarray[float] = (
+        parent_connection.origin_expression.to_position().to_np()
+    )
+
+    offset = -np.sign(handle_position[1]) * (scale.y / 2)
+    door_position = door_transform.to_np()[:3, 3] + np.array([0, offset, 0])
+
+    door_transform = TransformationMatrix.from_point_rotation_matrix(
+        Point3(*door_position)
+    )
+
+    return door_transform
 
 
 def replace_dresser_drawer_connections(world: World):
