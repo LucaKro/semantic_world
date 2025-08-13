@@ -1,4 +1,3 @@
-import math
 import re
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -6,25 +5,22 @@ from typing import TypeVar, Generic
 
 from numpy import ndarray
 from random_events.interval import Bound
-from random_events.polytope import Polytope
 from random_events.product_algebra import *
-from trimesh import visual
 
-from semantic_world.variables import SpatialVariables
 from semantic_world.connections import (
     PrismaticConnection,
     FixedConnection,
     RevoluteConnection,
 )
-from semantic_world.geometry import Box, Scale, BoundingBoxCollection
+from semantic_world.geometry import Scale, BoundingBoxCollection
 from semantic_world.prefixed_name import PrefixedName
 from semantic_world.spatial_types.derivatives import DerivativeMap
 from semantic_world.spatial_types.spatial_types import (
     TransformationMatrix,
     Vector3,
-    Point3,
 )
 from semantic_world.utils import IDGenerator
+from semantic_world.variables import SpatialVariables
 from semantic_world.views import (
     Container,
     Handle,
@@ -389,8 +385,13 @@ class DresserFactory(ViewFactory[Dresser]):
             door_view: Door = door_world.get_views_by_type(Door)[0]
             door_body = door_view.body
 
+            parent_connection = door_view.handle.body.parent_connection
+            if parent_connection is None:
+                raise ValueError(
+                    "Handle's body does not have a parent_connection; cannot compute handle_position."
+                )
             handle_position: ndarray[float] = (
-                door_view.handle.body.parent_connection.origin_expression.to_position().to_np()
+                parent_connection.origin_expression.to_position().to_np()
             )
 
             lower_limits = DerivativeMap[float]()
@@ -489,6 +490,7 @@ class DresserFactory(ViewFactory[Dresser]):
 class RoomFactory(ViewFactory[Room]):
     name: PrefixedName
     region: Region
+
     def create(self) -> World:
         room_view = Room(name=self.name, region=self.region)
 
@@ -555,7 +557,10 @@ class WallFactory(ViewFactory[Wall]):
 
             temp_world.merge_world(door_world, connection)
 
-            assert door_factory.handle_direction in {Direction.Y, Direction.NEGATIVE_Y}, "Currently only handles are only supported in Y direction"
+            assert door_factory.handle_direction in {
+                Direction.Y,
+                Direction.NEGATIVE_Y,
+            }, "Currently only handles are only supported in Y direction"
 
             door_plane_spatial_variables = SpatialVariables.yz
             door_thickness_spatial_variable = SpatialVariables.x.value
@@ -581,9 +586,7 @@ class WallFactory(ViewFactory[Wall]):
         wall_world.add_body(body)
         wall_world.add_view(wall)
 
-        for door_factory, transform in zip(
-            self.door_factories, self.door_transforms
-        ):
+        for door_factory, transform in zip(self.door_factories, self.door_transforms):
             door_world = door_factory.create()
 
             door_view: Door = door_world.get_views_by_type(Door)[0]
@@ -770,10 +773,6 @@ def supporting_surfaces(
 
     result = Event(*[s for e in events for s in e.simple_sets])
     result.make_disjoint()
-
-    import plotly.graph_objects as go
-
-    go.Figure(result.plot()).show()
 
     region = Region(
         areas=BoundingBoxCollection.from_event(result).as_shapes(body),

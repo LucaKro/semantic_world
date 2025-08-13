@@ -16,14 +16,14 @@ class MyTestCase(unittest.TestCase):
         )
         world = handle_factory.create()
 
-        rclpy.init()
-
-        node = rclpy.create_node("viz_marker")
-
-        p = VizMarkerPublisher(world, node)
-        time.sleep(100)
-        p._stop_publishing()
-        rclpy.shutdown()
+        # rclpy.init()
+        #
+        # node = rclpy.create_node("viz_marker")
+        #
+        # p = VizMarkerPublisher(world, node)
+        # time.sleep(100)
+        # p._stop_publishing()
+        # rclpy.shutdown()
 
 if __name__ == "__main__":
     unittest.main()

@@ -967,9 +967,18 @@ class World:
         self, spatial_object: cas.SpatialType, target_frame: Body
     ) -> cas.SpatialType:
         """
-            Transform a given spatial object from its reference frame to a target frame.
+        Transforms a given spatial object from its reference frame to the
+        specified target frame. The transformation is computed using the
+        kinematics data between the target frame and the object's reference
+        frame. Depending on the type of the spatial object (e.g., quaternion or
+        other spatial representations), different transformation approaches are
+        applied.
 
-        def compute_relative_pose(self, pose: NpMatrix4x4, target_body: Body, pose_body: Body) -> NpMatrix4x4:
+        :param spatial_object: The spatial entity (e.g., position, orientation) to be
+            transformed. Must conform to the `cas.SpatialType` interface.
+        :param target_frame: The target body frame to which the spatial object is to
+            be transformed.
+        :return: The spatial object transformed to the target frame.
         """
         target_frame_T_reference_frame = self.compute_forward_kinematics(
             root=target_frame, tip=spatial_object.reference_frame

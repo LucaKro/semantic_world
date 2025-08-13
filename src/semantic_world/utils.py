@@ -108,64 +108,16 @@ def copy_lru_cache(maxsize=None, typed=False):
 
     return decorator
 
+def bpy_installed() -> bool:
+    try:
+        import bpy
+        return True
+    except ImportError:
+        return False
 
-def _drop_fk_constraints(engine: Engine, tables: Iterable[str]) -> None:
-    """
-    Drop *named* foreign-key constraints for all *tables*.
-
-    MySQL / MariaDB uses ``DROP FOREIGN KEY`` whereas most other back-ends
-    accept the ANSI form ``DROP CONSTRAINT``.  Each statement is executed
-    inside a ``suppress(Exception)`` so that back-ends that do not support the
-    specific syntax simply continue.
-    """
-    insp = inspect(engine)
-    dialect = engine.dialect.name.lower()
-
-    with engine.begin() as conn:
-        for table in tables:
-            for fk in insp.get_foreign_keys(table):
-                name = fk.get("name")
-                if not name:                     # unnamed FKs (e.g. SQLite)
-                    continue
-
-                if dialect.startswith("mysql"):
-                    stmt = text(f"ALTER TABLE `{table}` DROP FOREIGN KEY `{name}`")
-                else:  # PostgreSQL, SQLite, MSSQL, …
-                    stmt = text(f'ALTER TABLE "{table}" DROP CONSTRAINT "{name}"')
-
-                with suppress(Exception):
-                    conn.execute(stmt)
-
-
-def drop_database(engine: Engine) -> None:
-    """
-    Remove **all** tables that are currently present in *engine*’s default
-    schema, taking care of back-references / foreign keys first.
-
-    Works with SQLite, PostgreSQL, MySQL / MariaDB, and most other SQLAlchemy
-    back-ends that support the standard reflection API.
-    """
-    metadata = MetaData()
-    metadata.reflect(bind=engine)
-
-    if not metadata.tables:
-        return
-
-    # 1. Drop FK constraints that would otherwise block table deletion.
-    _drop_fk_constraints(engine, metadata.tables.keys())
-
-    # 2. On MySQL / MariaDB it is still safest to disable FK checks entirely
-    #    while the DROP TABLE statements run; other back-ends don’t need this.
-    disable_fk_checks = engine.dialect.name.lower().startswith("mysql")
-
-    with engine.begin() as conn:
-        if disable_fk_checks:
-            conn.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
-
-        # Drop in reverse dependency order (children first → parents last).
-        for table in reversed(metadata.sorted_tables):
-            table.drop(bind=conn, checkfirst=True)
-
-        if disable_fk_checks:
-            conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
-
+def rclpy_installed() -> bool:
+    try:
+        import rclpy
+        return True
+    except ImportError:
+        return False

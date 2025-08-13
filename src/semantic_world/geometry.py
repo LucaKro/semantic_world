@@ -485,9 +485,9 @@ class BoundingBox:
         scale = Scale(x=self.max_x - self.min_x,
                       y=self.max_y - self.min_y,
                       z=self.max_z - self.min_z)
-        x = (self.max_x - self.min_x) / 2  + self.min_x
-        y = (self.max_y - self.min_y) / 2 + self.min_y
-        z = (self.max_z - self.min_z) / 2 + self.min_z
+        x = (self.max_x + self.min_x) / 2
+        y = (self.max_y + self.min_y) / 2
+        z = (self.max_z + self.min_z) / 2
         origin = TransformationMatrix.from_xyz_rpy(x, y, z, 0, 0, 0, reference_frame)
         return Box(origin=origin, scale=scale)
 

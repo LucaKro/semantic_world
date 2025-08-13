@@ -14,7 +14,7 @@ try:
 except ImportError:
     bpy = None
     BlenderObject = None
-    logging.warn("bpy not found")
+    logging.warning("bpy not found")
 
 from ..connections import Connection6DoF, FixedConnection
 from ..geometry import TriangleMesh
