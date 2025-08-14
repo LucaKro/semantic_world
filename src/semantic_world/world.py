@@ -6,7 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import wraps, lru_cache
-from typing import Dict, Tuple, OrderedDict, Union, Optional, TypeVar, Generic
+from typing import Dict, Tuple, OrderedDict, Union, Optional, Generic,TypeVar, Generic
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -32,13 +32,12 @@ logger = logging.getLogger(__name__)
 
 id_generator = IDGenerator()
 
+T = TypeVar("T")
+
 
 class PlotAlignment(IntEnum):
     HORIZONTAL = 0
     VERTICAL = 1
-
-
-T = TypeVar("T")
 
 
 class ForwardKinematicsVisitor(rustworkx.visit.DFSVisitor):
@@ -517,6 +516,7 @@ class World:
         :return: A list of `View` objects that match the given type.
         """
         return [view for view in self.views if isinstance(view, view_type)]
+
 
     @modifies_world
     def remove_body(self, body: Body) -> None:
