@@ -199,23 +199,24 @@ class ProcTHORParser:
             body_world_root = Body(name=PrefixedName(asset_id))
             body_world.add_body(body_world_root)
 
-        body_transform = TransformationMatrix.from_xyz_rpy(
+        old_body_transform = TransformationMatrix.from_xyz_rpy(
             obj["position"]["x"],
             obj["position"]["y"],
             obj["position"]["z"],
-            obj["rotation"]["x"],
-            obj["rotation"]["y"],
-            obj["rotation"]["z"],
+            math.radians(obj["rotation"]["x"]),
+            math.radians(obj["rotation"]["y"]),
+            math.radians(obj["rotation"]["z"]),
         ).to_np()
 
-        body_transform = TransformationMatrix(unity4x4_to_sdt4x4(body_transform))
+        body_transform = TransformationMatrix(unity4x4_to_sdt4x4(old_body_transform))
 
         for child in obj.get("children", {}):
-            child_world, child_transform = self.import_object(child)
+            child_world, global_child_transform = self.import_object(child)
+            local_child_transform = global_child_transform @ body_transform.inverse()
             child_connection = FixedConnection(
                 parent=body_world.root,
                 child=child_world.root,
-                origin_expression=child_transform,
+                origin_expression=local_child_transform,
             )
             body_world.merge_world(child_world, child_connection)
 
@@ -537,22 +538,18 @@ def get_world_by_prefixed_name(
 
 
 def main():
+    rclpy.init()
+
     semantic_world_database_uri = os.environ.get("SEMANTIC_WORLD_DATABASE_URI")
 
     # Create database engine and session
     engine = create_engine(f"mysql+pymysql://{semantic_world_database_uri}")
     session = Session(engine)
 
-    # update schema
-    drop_database(engine)
-    Base.metadata.create_all(engine)
-
     parser = ProcTHORParser(
         "../../../../resources/procthor_json/house_987654321.json", session
     )
     world = parser.parse()
-
-    rclpy.init()
 
     node = rclpy.create_node("viz_marker")
 

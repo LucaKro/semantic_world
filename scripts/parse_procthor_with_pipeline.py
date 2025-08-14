@@ -6,19 +6,14 @@ from operator import or_
 import plotly.graph_objects as go
 import tqdm
 from ormatic.dao import to_dao
-from entity_query_language.entity import an, entity
-from entity_query_language.symbolic import in_
-from sqlalchemy import create_engine, select
+from ormatic.utils import drop_database
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from semantic_world.adapters.fbx import FBXParser
-from semantic_world.adapters.procthor.procthor_pipelines import dresser_factory_replace, \
-    ExcludeChildMeshesFromParentMeshes
+from semantic_world.adapters.procthor.procthor_pipelines import dresser_factory_replace
 from semantic_world.orm.ormatic_interface import *
 from semantic_world.pipeline.pipeline import Pipeline, BodyFilter, BodyFactoryReplace
-from semantic_world.utils import drop_database
-from semantic_world.views import Handle
-from semantic_world.world import World
 
 
 def parse_fbx_file(fbx_file, session):
@@ -37,12 +32,18 @@ def parse_fbx_file(fbx_file, session):
     parser = FBXParser(fbx_file)
     worlds = parser.parse()
 
-    worlds = [pipeline.apply(world) for world in worlds if world.root.name.name == "dresser_413"]
+    worlds = [
+        pipeline.apply(world)
+        for world in worlds
+        # if world.root.name.name == "dresser_413"
+    ]
     if worlds:
-        events = [b.as_bounding_box_collection(worlds[0].root).event for b in worlds[0].bodies]
-        event = reduce(or_, events)
+        # events = [
+        #     b.as_bounding_box_collection(worlds[0].root).event for b in worlds[0].bodies
+        # ]
+        # event = reduce(or_, events)
 
-        go.Figure(event.plot()).show()
+        # go.Figure(event.plot()).show()
         daos = [to_dao(world) for world in worlds]
 
         session.add_all(daos)

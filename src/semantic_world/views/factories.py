@@ -3,12 +3,10 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import TypeVar, Generic
 
-import rclpy
 from numpy import ndarray
 from random_events.interval import Bound
 from random_events.product_algebra import *
 
-from semantic_world.adapters.viz_marker import VizMarkerPublisher
 from semantic_world.connections import (
     PrismaticConnection,
     FixedConnection,
