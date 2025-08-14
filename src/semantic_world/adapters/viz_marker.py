@@ -80,9 +80,9 @@ class VizMarkerPublisher:
                     f = collision.file
                     msg.type = Marker.MESH_RESOURCE
                     msg.mesh_resource = "file://" + f.name
-                    msg.scale = Vector3(x=float(collision.scale.x), y=float(collision.scale.y), z=float(collision.scale.z))
+                    msg.scale = Vector3(x=float(collision.scale.x), y=float(collision.scale.y),
+                                        z=float(collision.scale.z))
                     msg.mesh_use_embedded_materials = True
-
                 elif isinstance(collision, Cylinder):
                     msg.type = Marker.CYLINDER
                     msg.scale = Vector3(x=float(collision.width), y=float(collision.width), z=float(collision.height))
