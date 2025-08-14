@@ -6,7 +6,17 @@ from collections import deque
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, fields
 from functools import reduce
-from typing import List, Optional, TYPE_CHECKING, Set, get_args, get_type_hints, Deque
+from typing import (
+    List,
+    Optional,
+    TYPE_CHECKING,
+    Set,
+    get_args,
+    get_type_hints,
+    Deque,
+    Generic,
+    TypeVar,
+)
 import numpy as np
 import rustworkx
 from numpy import ndarray
@@ -250,7 +260,6 @@ class Body(WorldEntity):
         new_link.index = body.index
         return new_link
 
-
 @dataclass
 class View(WorldEntity):
     """
@@ -313,8 +322,12 @@ class Region(WorldEntity):
     """
     Virtual Body representing a semantic region in the world.
     """
-    reference_frame: Optional[Body] = field(default=None, repr=False, hash=False)
+    reference_frame: Body = field(default=None, repr=False, hash=False)
     areas: List[Shape] = field(default_factory=list, hash=False)
+
+
+    def __hash__(self):
+        return id(self)
 
     def as_bounding_box_collection(self, reference_frame: Optional[Body] = None)  -> BoundingBoxCollection:
         """

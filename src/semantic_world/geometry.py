@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import logging
 import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -90,6 +91,7 @@ class Shape(ABC):
         """
 
         origin_frame = self.origin.reference_frame
+        origin_T_self = self.origin
 
         if not reference_frame:
             reference_frame = self.origin.reference_frame
@@ -97,26 +99,23 @@ class Shape(ABC):
         reference_frame_world = reference_frame._world or origin_frame._world
 
         if reference_frame_world is not None:
-            body_transform: NpMatrix4x4 = reference_frame_world.compute_forward_kinematics_np(reference_frame,
-                                                                                              origin_frame)
+            reference_T_origin: TransformationMatrix = reference_frame_world.compute_forward_kinematics(reference_frame,
+                                                                                           origin_frame)
         else:
-            body_transform: NpMatrix4x4 = np.eye(4)
+            reference_T_origin: TransformationMatrix = TransformationMatrix()
 
-        shape_transform: ndarray = self.origin.to_np()
-
-        world_transform: ndarray = body_transform @ shape_transform
-        body_pos = world_transform[:3, 3]
-        body_rotation_matrix = world_transform[:3, :3]
+        reference_T_self: TransformationMatrix = reference_T_origin @ origin_T_self
 
         # Get all 8 corners of the BB in link-local space
-        corners = np.array([corner.to_np()[:3] for corner in self._local_bounding_box().get_points()])  # shape (8, 3)
+        list_self_T_corner = [TransformationMatrix.from_point_rotation_matrix(self_P_corner) for self_P_corner in self._local_bounding_box().get_points()] # shape (8, 3)
 
-        # Transform each corner to world space: R * corner + T
-        transformed_corners = (corners @ body_rotation_matrix.T) + body_pos
+        list_reference_T_corner = [reference_T_self @ self_T_corner for self_T_corner in list_self_T_corner]
+
+        list_reference_P_corner = [reference_T_corner.to_position().to_np()[:3] for reference_T_corner in list_reference_T_corner]
 
         # Compute world-space bounding box from transformed corners
-        min_corner = np.min(transformed_corners, axis=0)
-        max_corner = np.max(transformed_corners, axis=0)
+        min_corner = np.min(list_reference_P_corner, axis=0)
+        max_corner = np.max(list_reference_P_corner, axis=0)
 
         world_bb = BoundingBox.from_min_max(Point3.from_iterable(min_corner), Point3.from_iterable(max_corner))
 
@@ -159,7 +158,8 @@ class Mesh(Shape):
         """
         The mesh object.
         """
-        return trimesh.load_mesh(self.filename)
+        mesh = trimesh.load_mesh(self.filename)
+        return mesh
 
     def _local_bounding_box(self) -> BoundingBox:
         """

@@ -6,7 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import IntEnum
 from functools import wraps, lru_cache
-from typing import Dict, Tuple, OrderedDict, Union, Optional, Generic,TypeVar, Generic
+from typing import Dict, Tuple, OrderedDict, Union, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -31,9 +31,6 @@ from .world_state import WorldState
 logger = logging.getLogger(__name__)
 
 id_generator = IDGenerator()
-
-T = TypeVar("T")
-
 
 class PlotAlignment(IntEnum):
     HORIZONTAL = 0
@@ -461,8 +458,8 @@ class World:
                 "Cannot add a region that already belongs to another world."
             )
 
-        # write self as the bodys world
         region._world = self
+        self.regions.append(region)
 
     def add_view(self, view: View, exists_ok: bool = True) -> None:
         """
@@ -508,7 +505,7 @@ class World:
             return matches[0]
         return None
 
-    def get_views_by_type(self, view_type: Type[Generic[T]]) -> List[T]:
+    def get_views_by_type(self, view_type: Type[View]) -> List[View]:
         """
         Retrieves all views of a specific type from the world.
 
@@ -526,6 +523,14 @@ class World:
             body.index = None
         else:
             logger.debug("Trying to remove a body that is not part of this world.")
+
+    @modifies_world
+    def remove_region(self, region: Region) -> None:
+        if region._world is self:
+            self.regions.remove(region)
+            region._world = None
+        else:
+            logger.debug("Trying to remove a region that is not part of this world.")
 
     @modifies_world
     def remove_connection(self, connection: Connection) -> None:
@@ -580,6 +585,10 @@ class World:
             self.add_view(view)
 
         for region in other.regions:
+            if region._world is not None:
+                other.remove_region(region)
+
+            region._world = self
             self.add_region(region)
 
         other.world_is_being_modified = False

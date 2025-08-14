@@ -1,11 +1,11 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import trimesh
 
 from semantic_world.connections import Connection6DoF
 from semantic_world.spatial_types.spatial_types import RotationMatrix
-from ..geometry import Mesh, TriangleMesh
+from ..geometry import Mesh, TriangleMesh, Scale
 from ..prefixed_name import PrefixedName
 from ..spatial_types.spatial_types import TransformationMatrix, Point3
 from ..world import World
@@ -21,6 +21,10 @@ class MeshParser:
     """
     The path to the mesh file.
     """
+    scale: Scale = field(default_factory=Scale)
+    """
+    The scale to apply to the mesh.
+    """
 
     def parse(self) -> World:
         """
@@ -30,7 +34,7 @@ class MeshParser:
         """
         file_name = os.path.basename(self.file_path)
 
-        mesh_shape = Mesh(origin=TransformationMatrix(), filename=self.file_path)
+        mesh_shape = Mesh(origin=TransformationMatrix(), filename=self.file_path, scale=self.scale)
         body = Body(name=PrefixedName(file_name), collision=[mesh_shape], visual=[mesh_shape])
 
         world = World()

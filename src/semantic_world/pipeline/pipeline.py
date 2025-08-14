@@ -1,3 +1,4 @@
+import logging
 import re
 from abc import ABC
 from dataclasses import dataclass, field
@@ -161,6 +162,13 @@ class COACDMeshDecomposer(Step):
             for shape in body.visual:
                 if isinstance(shape, (Mesh, TriangleMesh)):
                     mesh = shape.mesh
+
+                    if shape.scale.x == shape.scale.y == shape.scale.z:
+                        mesh.apply_scale(shape.scale.x)
+                    else:
+                        logging.warning(
+                            "Ambiguous scale for mesh, using uniform scale only."
+                        )
 
                     mesh = coacd.Mesh(mesh.vertices, mesh.faces)
                     if self.max_convex_hull is not None:

@@ -8,8 +8,7 @@ from typing import Optional, List, Dict, Tuple
 
 import numpy as np
 import rclpy
-from ormatic.utils import drop_database
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, literal
 from sqlalchemy import select, exists, and_, or_
 from sqlalchemy.orm import Session
 
@@ -22,7 +21,6 @@ from semantic_world.orm.ormatic_interface import (
     ViewDAO,
     ConnectionDAO,
     PrefixedNameDAO,
-    Base,
 )
 from semantic_world.prefixed_name import PrefixedName
 from semantic_world.spatial_types.spatial_types import (
@@ -133,6 +131,8 @@ class ProcTHORParser:
     file_path: str
     session: Session
 
+    imported_objects: list = field(default_factory=list, init=False)
+
     @staticmethod
     def import_room(room: dict) -> Tuple[World, TransformationMatrix]:
         """
@@ -189,15 +189,27 @@ class ProcTHORParser:
         """
         asset_id = obj["assetId"]
 
+        # currently we have naming problems, when we import the same asset multiple times, since rn we only rename the
+        # root, not the children that were parsed from their fbx files
+
+        if asset_id in self.imported_objects:
+            asset_name = asset_id + f"_{len(self.imported_objects)}"
+        else:
+            asset_name = asset_id
+
+        self.imported_objects.append(asset_name)
+
         body_world: World = get_world_by_prefixed_name(self.session, name=asset_id)
 
         if body_world is None:
             logging.error(
                 f"Could not find asset {asset_id} in the database. Using virtual body and proceeding to process children"
             )
-            body_world = World(name=asset_id)
-            body_world_root = Body(name=PrefixedName(asset_id))
+            body_world = World(name=asset_name)
+            body_world_root = Body(name=PrefixedName(asset_name))
             body_world.add_body(body_world_root)
+
+        body_world.root.name.name = asset_name
 
         old_body_transform = TransformationMatrix.from_xyz_rpy(
             obj["position"]["x"],
@@ -502,7 +514,7 @@ def get_world_by_prefixed_name(
 
     # Helper to build the name filter for PrefixedNameDAO
     def pn_filter():
-        base = PrefixedNameDAO.name == name
+        base = literal(name).contains(PrefixedNameDAO.name)
         return (
             and_(base, PrefixedNameDAO.prefix == prefix) if prefix is not None else base
         )
@@ -546,9 +558,7 @@ def main():
     engine = create_engine(f"mysql+pymysql://{semantic_world_database_uri}")
     session = Session(engine)
 
-    parser = ProcTHORParser(
-        "../../../../resources/procthor_json/house_987654321.json", session
-    )
+    parser = ProcTHORParser("../../../../resources/procthor_json/house_1.json", session)
     world = parser.parse()
 
     node = rclpy.create_node("viz_marker")
