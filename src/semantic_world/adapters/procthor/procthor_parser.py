@@ -155,7 +155,7 @@ class ProcTHORParser:
         y_center = sum(v.y.to_np() for v in room_polytope) / polytope_length
         z_center = sum(v.z.to_np() for v in room_polytope) / polytope_length
 
-        center_point = Point3(x_center, y_center, z_center)
+        world_P_room = Point3(x_center, y_center, z_center)
 
         centered_polytope = [
             Point3(
@@ -173,9 +173,9 @@ class ProcTHORParser:
 
         room_factory = RoomFactory(name=room_name, region=region)
 
-        transform = TransformationMatrix.from_point_rotation_matrix(center_point)
+        world_T_room = TransformationMatrix.from_point_rotation_matrix(world_P_room)
 
-        return room_factory.create(), transform
+        return room_factory.create(), world_T_room
 
     def import_object(self, obj: dict) -> Tuple[World, TransformationMatrix]:
         """
@@ -211,7 +211,7 @@ class ProcTHORParser:
 
         body_world.root.name.name = asset_name
 
-        old_body_transform = TransformationMatrix.from_xyz_rpy(
+        world_T_obj = TransformationMatrix.from_xyz_rpy(
             obj["position"]["x"],
             obj["position"]["y"],
             obj["position"]["z"],
@@ -220,19 +220,19 @@ class ProcTHORParser:
             math.radians(obj["rotation"]["z"]),
         ).to_np()
 
-        body_transform = TransformationMatrix(unity4x4_to_sdt4x4(old_body_transform))
+        world_T_obj = TransformationMatrix(unity4x4_to_sdt4x4(world_T_obj))
 
         for child in obj.get("children", {}):
-            child_world, global_child_transform = self.import_object(child)
-            local_child_transform = global_child_transform @ body_transform.inverse()
+            child_world, world_T_child = self.import_object(child)
+            obj_T_child = world_T_obj.inverse() @ world_T_child
             child_connection = FixedConnection(
                 parent=body_world.root,
                 child=child_world.root,
-                origin_expression=local_child_transform,
+                origin_expression=obj_T_child,
             )
             body_world.merge_world(child_world, child_connection)
 
-        return body_world, body_transform
+        return body_world, world_T_obj
 
     @staticmethod
     def group_walls_by_polygon(
@@ -346,10 +346,10 @@ class ProcTHORParser:
         yaw = math.atan2(dz, -dx)
 
         scale = Scale(x=width, y=height, z=wall_thickness)
-        transform = TransformationMatrix.from_xyz_rpy(
+        world_T_wall = TransformationMatrix.from_xyz_rpy(
             x_center, 0, z_center, 0.0, yaw, 0
         )
-        return scale, transform
+        return scale, world_T_wall
 
     def import_walls(
         self, procthor_wall: ProcthorWall
@@ -383,23 +383,19 @@ class ProcTHORParser:
             f"wall_{wall_corners[0]}_{wall_corners[1]}_{wall_corners[2]}_{wall_corners[3]}_room{room_numbers[0]}_room{room_numbers[1]}"
         )
 
-        wall_scale, wall_transform = self.process_wall_polygon(used_wall["polygon"])
+        wall_scale, world_T_wall = self.process_wall_polygon(used_wall["polygon"])
 
         # Scale cannot be negative, so the usual minus in front of wall_scale.x omitted
         wall_scale = Scale(wall_scale.z, wall_scale.x, wall_scale.y)
-        wall_transform = unity4x4_to_sdt4x4(wall_transform.to_np())
+        world_T_wall = unity4x4_to_sdt4x4(world_T_wall.to_np())
 
         # The wall is artificially set to z=0 here, because
         # 1. as of now, procthor house floors have the same z value
         # 2. Since doors origins are in 3d center, positioning the door correctly at the floor given potentially varying
         #    wall heights is unnecessarily complex given the assumption stated in 1.
-        wall_transform = TransformationMatrix.from_point_rotation_matrix(
-            Point3(*wall_transform[:3, 3]),
-            RotationMatrix(wall_transform),
-        )
-
+        world_T_wall = TransformationMatrix(world_T_wall)
         door_factories = []
-        door_transforms = []
+        list_wall_T_door = []
 
         for door in procthor_wall.doors:
             room_numbers = door["id"].split("|")[1:]
@@ -414,19 +410,19 @@ class ProcTHORParser:
 
             # In unity, doors are defined as holes in the wall, so we express them as children of walls.
             # This means we just need to translate them, and can assume no rotation
-            door_scale, door_position = process_door_polygon(
+            door_scale, wall_P_door = process_door_polygon(
                 door, wall_width=wall_scale.y
             )
 
             door_scale = Scale(door_scale.z, door_scale.x, door_scale.y)
-            door_position = Point3(
-                door_position.z.to_np(),
-                -door_position.x.to_np(),
-                door_position.y.to_np(),
+            wall_P_door = Point3(
+                wall_P_door.z.to_np(),
+                -wall_P_door.x.to_np(),
+                wall_P_door.y.to_np(),
             )
 
-            door_transform = TransformationMatrix.from_point_rotation_matrix(
-                door_position,
+            wall_T_door = TransformationMatrix.from_point_rotation_matrix(
+                wall_P_door,
             )
 
             if "double" in asset_id.lower():
@@ -444,16 +440,16 @@ class ProcTHORParser:
                 )
 
             door_factories.append(door_factory)
-            door_transforms.append(door_transform)
+            list_wall_T_door.append(wall_T_door)
 
         wall_factory = WallFactory(
             name=wall_name,
             scale=wall_scale,
             door_factories=door_factories,
-            door_transforms=door_transforms,
+            door_transforms=list_wall_T_door,
         )
 
-        return wall_factory.create(), wall_transform
+        return wall_factory.create(), world_T_wall
 
     def parse(self) -> World:
         """
@@ -471,18 +467,18 @@ class ProcTHORParser:
         world.add_body(world_root)
 
         for room in house["rooms"]:
-            room_world, room_transform = self.import_room(room)
+            room_world, world_T_room = self.import_room(room)
             room_connection = FixedConnection(
                 parent=world.root,
                 child=room_world.root,
-                origin_expression=room_transform,
+                origin_expression=world_T_room,
             )
             world.merge_world(room_world, room_connection)
 
         for obj in house["objects"]:
-            obj_world, obj_transform = self.import_object(obj)
+            obj_world, world_T_obj = self.import_object(obj)
             obj_connection = FixedConnection(
-                parent=world.root, child=obj_world.root, origin_expression=obj_transform
+                parent=world.root, child=obj_world.root, origin_expression=world_T_obj
             )
             world.merge_world(obj_world, obj_connection)
 
@@ -494,11 +490,11 @@ class ProcTHORParser:
         )
 
         for procthor_wall in procthor_walls:
-            wall_world, wall_transform = self.import_walls(procthor_wall)
+            wall_world, world_T_wall = self.import_walls(procthor_wall)
             wall_connection = FixedConnection(
                 parent=world.root,
                 child=wall_world.root,
-                origin_expression=wall_transform,
+                origin_expression=world_T_wall,
             )
             world.merge_world(wall_world, wall_connection)
 
@@ -514,38 +510,54 @@ def get_world_by_prefixed_name(
 
     # Helper to build the name filter for PrefixedNameDAO
     def pn_filter():
-        base = literal(name).contains(PrefixedNameDAO.name)
+        base = PrefixedNameDAO.name == name
         return (
             and_(base, PrefixedNameDAO.prefix == prefix) if prefix is not None else base
         )
 
-    # EXISTS subqueries for bodies, views, and connections
-    bodies_exist = exists(
-        select(BodyDAO.id)
-        .join(PrefixedNameDAO, BodyDAO.name)  # WorldEntity.name relationship
-        .where(BodyDAO.worldmappingdao_bodies_id == WorldMappingDAO.id, pn_filter())
-        .limit(1)
-    )
-
-    views_exist = exists(
-        select(ViewDAO.id)
-        .join(PrefixedNameDAO, ViewDAO.name)
-        .where(ViewDAO.worldmappingdao_views_id == WorldMappingDAO.id, pn_filter())
-        .limit(1)
-    )
-
-    conns_exist = exists(
-        select(ConnectionDAO.id)
-        .join(PrefixedNameDAO, ConnectionDAO.name)
-        .where(
-            ConnectionDAO.worldmappingdao_connections_id == WorldMappingDAO.id,
-            pn_filter(),
+    def query(filter):
+        # EXISTS subqueries for bodies, views, and connections
+        bodies_exist = exists(
+            select(BodyDAO.id)
+            .join(PrefixedNameDAO, BodyDAO.name)  # WorldEntity.name relationship
+            .where(BodyDAO.worldmappingdao_bodies_id == WorldMappingDAO.id, filter())
+            .limit(1)
         )
-        .limit(1)
-    )
 
-    q = select(WorldMappingDAO).where(or_(bodies_exist, views_exist, conns_exist))
-    world_mapping = session.scalars(q).first()
+        views_exist = exists(
+            select(ViewDAO.id)
+            .join(PrefixedNameDAO, ViewDAO.name)
+            .where(ViewDAO.worldmappingdao_views_id == WorldMappingDAO.id, filter())
+            .limit(1)
+        )
+
+        conns_exist = exists(
+            select(ConnectionDAO.id)
+            .join(PrefixedNameDAO, ConnectionDAO.name)
+            .where(
+                ConnectionDAO.worldmappingdao_connections_id == WorldMappingDAO.id,
+                filter(),
+            )
+            .limit(1)
+        )
+
+        q = select(WorldMappingDAO).where(or_(bodies_exist, views_exist, conns_exist))
+        world_mapping = session.scalars(q).first()
+        return world_mapping
+
+
+    def pn_filter2():
+        base = literal(name).contains(PrefixedNameDAO.name)
+        return (
+            and_(base, PrefixedNameDAO.prefix == prefix)
+            if prefix is not None
+            else base
+        )
+
+    world_mapping = query(pn_filter)
+    if world_mapping is None:
+        world_mapping = query(pn_filter2)
+
     return world_mapping.from_dao() if world_mapping is not None else None
 
 
@@ -558,7 +570,7 @@ def main():
     engine = create_engine(f"mysql+pymysql://{semantic_world_database_uri}")
     session = Session(engine)
 
-    parser = ProcTHORParser("../../../../resources/procthor_json/house_1.json", session)
+    parser = ProcTHORParser("../../../../resources/procthor_json/house_2.json", session)
     world = parser.parse()
 
     node = rclpy.create_node("viz_marker")
