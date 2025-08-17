@@ -386,12 +386,25 @@ class ProcthorRoom:
 
 @dataclass
 class ProcthorObject:
+    """
+    Processes an object dictionary from Procthor, extracting the object's position and rotation,
+    and computing its world transformation matrix. It also handles the import of child objects recursively.
+    """
 
     object_dict: dict
+    """
+    Dictionary representing an object from Procthor's JSON format.
+    """
 
     session: Session
+    """
+    SQLAlchemy session to interact with the database to import objects.
+    """
 
     imported_objects: List[str] = field(default_factory=list, init=False)
+    """
+    List of imported object names to avoid naming conflicts when importing the same asset multiple times.
+    """
 
     def __post_init__(self):
         asset_id = self.object_dict["assetId"]
@@ -511,7 +524,7 @@ class ProcTHORParser:
         :param walls: List of walls without doors
 
         :return: List of ProcthorWall instances, each representing a pair of walls with the same polygon.
-        :raises AssertionError: If the number of walls is not even or if a polygon does not have exactly two walls.
+        :raises AssertionError: If the number of walls is not even, as we assume that walls are always paired.
         """
 
         assert len(walls) % 2 == 0, (
@@ -527,13 +540,8 @@ class ProcTHORParser:
             key = polygon_key(wall.get("polygon", []))
             groups.setdefault(key, []).append(wall)
 
-        procthor_walls: List[ProcthorWall] = []
-        for matched_walls in groups.values():
-            assert len(matched_walls) == 2, (
-                f"Expected two matched walls for each polygon, but found {len(matched_walls)}: {matched_walls}. "
-                f"We assumed that this is never the case, this case may need to be handled now"
-            )
-            procthor_walls.append(ProcthorWall(wall_dicts=matched_walls))
+        procthor_walls = [ProcthorWall(wall_dicts=matched_walls) for matched_walls in groups.values()]
+
 
         return procthor_walls
 
@@ -558,12 +566,9 @@ class ProcTHORParser:
             wall_ids = [door.get("wall0"), door.get("wall1")]
             found_walls = []
             for wall_id in wall_ids:
-                if not wall_id:
-                    continue
-                wall = walls_by_id.get(wall_id)
-                if wall:
-                    found_walls.append(wall)
-                    used_wall_ids.add(wall_id)
+                wall = walls_by_id[wall_id]
+                found_walls.append(wall)
+                used_wall_ids.add(wall_id)
 
             assert (
                 len(found_walls) == 2
