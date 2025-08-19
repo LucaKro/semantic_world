@@ -1,20 +1,20 @@
-import logging
 import os
 from dataclasses import dataclass, field
 from enum import Enum
 
+import fbxloader
 import numpy as np
 import trimesh
+from fbxloader.nodes import Mesh as FBXMesh, Object3D, Scene
 
-from semantic_world.connections import Connection6DoF, FixedConnection
+from semantic_world.connections import FixedConnection
 from semantic_world.spatial_types.spatial_types import RotationMatrix
 from ..geometry import Mesh, TriangleMesh, Scale
 from ..prefixed_name import PrefixedName
 from ..spatial_types.spatial_types import TransformationMatrix, Point3
 from ..world import World
 from ..world_entity import Body
-import fbxloader
-from fbxloader.nodes import Mesh as FBXMesh, Object3D, Scene
+
 
 @dataclass
 class MeshParser:
@@ -110,6 +110,7 @@ class CoordinateAxis(Enum):
         v[idx] = float(sgn)
         return v
 
+
 @dataclass
 class FBXGlobalSettings:
 
@@ -137,7 +138,7 @@ class FBXGlobalSettings:
             fbx.fbxtree["GlobalSettings"]["CoordAxisSign"]["value"],
         )
 
-    def get_fbx_T_semantic_world(self):
+    def get_semantic_world_T_fbx(self):
         """
         Get the transformation matrix from FBX to Semantic World coordinate system.
         """
@@ -160,22 +161,18 @@ class FBXParser(MeshParser):
     """
 
     @staticmethod
-    def transform_vertices(vertices: np.ndarray, M: np.ndarray) -> np.ndarray:
+    def transform_vertices(vertices: np.ndarray, semantic_world_T_fbx: np.ndarray) -> np.ndarray:
         """
-        vertices: (N, 3) float array
-        M: (4, 4) transform that maps FBX -> Semantic World (column-vector convention)
-        returns transformed vertices (N, 3)
+        Transform vertices from FBX coordinate system to Semantic World coordinate system.
         """
         assert vertices.ndim == 2 and vertices.shape[1] == 3, "vertices must be (N,3)"
-        assert M.shape == (4, 4), "M must be 4x4"
+        assert semantic_world_T_fbx.shape == (4, 4), "semantic_world_T_fbx must be 4x4"
 
-        # make homogeneous row vectors
         ones = np.ones((vertices.shape[0], 1), dtype=vertices.dtype)
-        Vh = np.concatenate([vertices, ones], axis=1)  # (N,4)
+        vert_T_fbx = np.concatenate([vertices, ones], axis=1)
 
-        # row-vector transform ⇒ right-multiply by M^T
-        Vh_out = Vh @ M.T  # (N,4)
-        return Vh_out[:, :3]
+        vert_T_semantic_world = vert_T_fbx @ semantic_world_T_fbx.T
+        return vert_T_semantic_world[:, :3]
 
     def parse(self) -> World:
         """
@@ -187,11 +184,9 @@ class FBXParser(MeshParser):
         fbx = fbxloader.FBXLoader(self.file_path)
 
         global_settings = FBXGlobalSettings(fbx)
-        fbx_T_semantic_world = global_settings.get_fbx_T_semantic_world()
+        semantic_world_T_fbx = global_settings.get_semantic_world_T_fbx()
 
         world = World()
-
-        id_to_centroid_map = {}
 
         with world.modify_world():
             for obj_id, obj in fbx.objects.items():
@@ -203,22 +198,19 @@ class FBXParser(MeshParser):
                     meshes = []
                     for o in obj.children:
                         if isinstance(o, FBXMesh):
-                            aligned_vertices = self.transform_vertices(o.vertices, fbx_T_semantic_world) / 100
+                            aligned_vertices = (
+                                self.transform_vertices(
+                                    o.vertices, semantic_world_T_fbx
+                                )
+                                / 100
+                            )
 
-                            # center = aligned_vertices.mean(axis=0)  # centroid
-
-                            #
-                            # assert not obj in id_to_centroid_map, f"Object ID {obj_id} already has a center assigned, we now need to handle cases with multiple meshes per object ID."
-                            # id_to_centroid_map[obj_id] = center
-                            #
-                            # # Shift vertices
-                            # aligned_vertices = aligned_vertices - center
-                            #
-                            # # Update object transform: pre-translate by +center
-                            # T = np.eye(4)
-                            # T[:3, 3] = center
-
-                            t_mesh = TriangleMesh(origin=TransformationMatrix(), mesh=trimesh.Trimesh(vertices=aligned_vertices,faces=o.faces))
+                            t_mesh = TriangleMesh(
+                                origin=TransformationMatrix(),
+                                mesh=trimesh.Trimesh(
+                                    vertices=aligned_vertices, faces=o.faces
+                                ),
+                            )
 
                             meshes.append(t_mesh)
                     body = Body(
@@ -244,16 +236,10 @@ class FBXParser(MeshParser):
                     obj_body = world.get_body_by_name(name)
                     parent_body = world.get_body_by_name(parent_name)
 
-                    # world_P_obj = id_to_centroid_map[obj.id]
-                    # world_P_parent = id_to_centroid_map.get(obj.parent.id, np.zeros(3))
-                    # parent_P_obj = world_P_obj - world_P_parent
-                    #
-                    # translation = Point3(*parent_P_obj)
-
-                    translation = Point3(*obj.matrix[3, :3])
-                    rotation_matrix = RotationMatrix(obj.matrix)
+                    parent_P_child = Point3(*obj.matrix[3, :3])
+                    parent_R_child = RotationMatrix(obj.matrix)
                     parent_T_child = TransformationMatrix.from_point_rotation_matrix(
-                        translation, rotation_matrix, reference_frame=parent_body
+                        parent_P_child, parent_R_child, reference_frame=parent_body
                     )
 
                     connection = FixedConnection(
