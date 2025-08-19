@@ -417,6 +417,12 @@ class World:
         """
         return list(self.kinematic_structure.edges())
 
+    @property
+    def bodies_topologically_sorted(self) -> List[Body]:
+        indices = rx.topological_sort(self.kinematic_structure)
+
+        return [self.kinematic_structure[index] for index in indices]
+
     @modifies_world
     def add_body(self, body: Body) -> None:
         """
@@ -513,7 +519,6 @@ class World:
         :return: A list of `View` objects that match the given type.
         """
         return [view for view in self.views if isinstance(view, view_type)]
-
 
     @modifies_world
     def remove_body(self, body: Body) -> None:
