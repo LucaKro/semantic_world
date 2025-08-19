@@ -9,10 +9,10 @@ import coacd
 import numpy as np
 import trimesh
 
+from semantic_world.geometry import TriangleMesh, Mesh
 from semantic_world.spatial_types import Point3
 from semantic_world.spatial_types.spatial_types import TransformationMatrix
 from semantic_world.views.factories import ViewFactory
-from semantic_world.geometry import TriangleMesh, Mesh
 from semantic_world.world import World
 from semantic_world.world_entity import Body
 
@@ -65,29 +65,34 @@ class CenterLocalGeometryPreserveWorldPose(Step):
                     mesh = coll.mesh
                     if mesh.vertices.shape[0] > 0:
                         vertices.append(mesh.vertices.copy())
-                        center = mesh.vertices.mean(axis=0)
-                        mesh.vertices -= center
 
             if len(vertices) == 0:
                 logging.warning(f"Body {body.name.name} has no vertices in visual or collision shapes.")
                 continue
 
-            parent = self.world.compute_parent_body(body)
+            center = np.vstack(vertices).mean(axis=0)
 
-            vertices = np.vstack(vertices)
+            for coll in body.collision:
+                if isinstance(coll, (Mesh, TriangleMesh)):
+                    m = coll.mesh
+                    if m.vertices.shape[0] > 0:
+                        m.vertices -= center
 
+            old_origin_T_new_origin = TransformationMatrix.from_point_rotation_matrix(
+                Point3(*center)
+            )
 
-            old_origin_T_new_origin = TransformationMatrix.from_point_rotation_matrix(Point3(*vertices.mean(axis=0)))
+            parent_T_old_origin = body.parent_connection.origin_expression
 
-            parent_T_old_origin: TransformationMatrix = body.parent_connection.origin_expression
+            body.parent_connection.origin_expression = (
+                parent_T_old_origin @ old_origin_T_new_origin
+            )
 
-            parent_T_new_origin = parent_T_old_origin @ old_origin_T_new_origin
-
-            world_T_parent = parent.parent_connection.origin_expression if parent.parent_connection else TransformationMatrix()
-
-            world_T_new_origin = world_T_parent.inverse() @ parent_T_new_origin
-
-            body.parent_connection.origin_expression = world_T_new_origin
+            for child in self.world.compute_child_bodies(body):
+                old_origin_T_child_origin = child.parent_connection.origin_expression
+                child.parent_connection.origin_expression = (
+                    old_origin_T_new_origin.inverse() @ old_origin_T_child_origin
+                )
 
         self.world._notify_model_change()
         return self.world
