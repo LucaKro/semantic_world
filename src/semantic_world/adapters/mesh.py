@@ -5,7 +5,6 @@ from enum import Enum
 
 import numpy as np
 import trimesh
-from sphinx_book_theme.header_buttons.launch import translation
 
 from semantic_world.connections import Connection6DoF, FixedConnection
 from semantic_world.spatial_types.spatial_types import RotationMatrix
@@ -206,18 +205,18 @@ class FBXParser(MeshParser):
                         if isinstance(o, FBXMesh):
                             aligned_vertices = self.transform_vertices(o.vertices, fbx_T_semantic_world) / 100
 
-                            center = aligned_vertices.mean(axis=0)  # centroid
+                            # center = aligned_vertices.mean(axis=0)  # centroid
 
-
-                            assert not obj in id_to_centroid_map, f"Object ID {obj_id} already has a center assigned, we now need to handle cases with multiple meshes per object ID."
-                            id_to_centroid_map[obj_id] = center
-
-                            # Shift vertices
-                            aligned_vertices = aligned_vertices - center
-
-                            # Update object transform: pre-translate by +center
-                            T = np.eye(4)
-                            T[:3, 3] = center
+                            #
+                            # assert not obj in id_to_centroid_map, f"Object ID {obj_id} already has a center assigned, we now need to handle cases with multiple meshes per object ID."
+                            # id_to_centroid_map[obj_id] = center
+                            #
+                            # # Shift vertices
+                            # aligned_vertices = aligned_vertices - center
+                            #
+                            # # Update object transform: pre-translate by +center
+                            # T = np.eye(4)
+                            # T[:3, 3] = center
 
                             t_mesh = TriangleMesh(origin=TransformationMatrix(), mesh=trimesh.Trimesh(vertices=aligned_vertices,faces=o.faces))
 
@@ -245,13 +244,13 @@ class FBXParser(MeshParser):
                     obj_body = world.get_body_by_name(name)
                     parent_body = world.get_body_by_name(parent_name)
 
-                    world_P_obj = id_to_centroid_map[obj.id]
-                    world_P_parent = id_to_centroid_map.get(obj.parent.id, np.zeros(3))
-                    parent_P_obj = world_P_obj - world_P_parent
+                    # world_P_obj = id_to_centroid_map[obj.id]
+                    # world_P_parent = id_to_centroid_map.get(obj.parent.id, np.zeros(3))
+                    # parent_P_obj = world_P_obj - world_P_parent
+                    #
+                    # translation = Point3(*parent_P_obj)
 
-                    translation = Point3(*parent_P_obj)
-
-                    # translation = Point3(*obj.matrix[3, :3])
+                    translation = Point3(*obj.matrix[3, :3])
                     rotation_matrix = RotationMatrix(obj.matrix)
                     parent_T_child = TransformationMatrix.from_point_rotation_matrix(
                         translation, rotation_matrix, reference_frame=parent_body
