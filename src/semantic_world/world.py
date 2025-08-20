@@ -15,7 +15,7 @@ import rustworkx.visit
 import rustworkx.visualization
 from typing_extensions import List, Type
 
-from .connections import HasUpdateState, Has1DOFState, Connection6DoF, ActiveConnection
+from .connections import HasUpdateState, Has1DOFState, Connection6DoF, ActiveConnection, PassiveConnection
 from .degree_of_freedom import DegreeOfFreedom
 from .exceptions import DuplicateViewError, AddingAnExistingViewError
 from .ik_solver import InverseKinematicsSolver
@@ -334,6 +334,16 @@ class World:
         dof = DegreeOfFreedom(
             name=name, lower_limits=lower_limits, upper_limits=upper_limits, _world=self
         )
+        self.register_degree_of_freedom(dof)
+        return dof
+
+    @modifies_world
+    def register_degree_of_freedom(self, dof: DegreeOfFreedom) -> None:
+        """
+        Register a degree of freedom in the world.
+        This is used to register DoFs that are not created by the world, but are part of the world model.
+        :param dof: The degree of freedom to register.
+        """
         initial_position = 0
         lower_limit = dof.lower_limits.position
         if lower_limit is not None:
@@ -341,12 +351,11 @@ class World:
         upper_limit = dof.upper_limits.position
         if upper_limit is not None:
             initial_position = min(upper_limit, initial_position)
-        self.state[name].position = initial_position
-        assert [dof for dof in self.degrees_of_freedom if dof.name == name].count(
+        self.state[dof.name].position = initial_position
+        assert [dof2 for dof2 in self.degrees_of_freedom if dof2.name == dof.name].count(
             dof
         ) == 0
         self.degrees_of_freedom.append(dof)
-        return dof
 
     def modify_world(self) -> WorldModelUpdateContextManager:
         return WorldModelUpdateContextManager(self)
@@ -392,9 +401,19 @@ class World:
             self.reset_cache()
             self.compile_forward_kinematics_expressions()
             # self._cleanup_unused_dofs()
+            self.deleted_orphaned_dof()
             self.notify_state_change()
             self._model_version += 1
             self.validate()
+
+    def deleted_orphaned_dof(self):
+        actual_dofs = set()
+        for connection in self.connections:
+            if isinstance(connection, ActiveConnection):
+                actual_dofs.update(set(connection.active_dofs))
+            if isinstance(connection, PassiveConnection):
+                actual_dofs.update(set(connection.passive_dofs))
+        self.degrees_of_freedom = list(actual_dofs)
 
     @property
     def bodies(self) -> List[Body]:
@@ -601,6 +620,8 @@ class World:
         connection = root_connection or Connection6DoF(
             parent=self_root, child=other_root, _world=self
         )
+        for dof in connection.dofs:
+            self.register_degree_of_freedom(dof)
         self.add_connection(connection)
 
     def merge_world_at_pose(self, other: World, pose: cas.TransformationMatrix) -> None:
@@ -903,6 +924,39 @@ class World:
         plt.title("World Kinematic Structure")
         plt.axis("off")  # Hide axes
         plt.show()
+
+    @modifies_world
+    def move_subgraph_from_root_to_new_world(self, root: Body) -> World:
+        """
+        Copies the subgraph of the kinematic structure from the root body to a new world and removes it from the old world.
+
+        :param root: The root body of the subgraph to be copied.
+        :return: A new `World` instance containing the copied subgraph.
+        """
+        new_world = World(name=self.name)
+        child_bodies = self.compute_child_bodies_recursive(root)
+        child_body_parent_connections = [
+            body.parent_connection for body in child_bodies
+        ]
+
+        with new_world.modify_world():
+            self.remove_body(root)
+            new_world.add_body(root)
+
+            for body in child_bodies:
+                self.remove_body(body)
+                new_world.add_body(body)
+
+            for connection in child_body_parent_connections:
+                self.remove_connection(connection)
+                new_world.add_connection(connection)
+                for dof in connection.dofs:
+                    if dof not in new_world.degrees_of_freedom:
+                        new_world.register_degree_of_freedom(dof)
+
+
+
+        return new_world
 
     def _travel_branch(self, body: Body, visitor: rustworkx.visit.DFSVisitor) -> None:
         """
