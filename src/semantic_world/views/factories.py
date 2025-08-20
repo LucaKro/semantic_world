@@ -12,6 +12,7 @@ from semantic_world.connections import (
     FixedConnection,
     RevoluteConnection,
 )
+from semantic_world.degree_of_freedom import DegreeOfFreedom
 from semantic_world.geometry import Scale, BoundingBoxCollection, Box
 from semantic_world.prefixed_name import PrefixedName
 from semantic_world.spatial_types.derivatives import DerivativeMap
@@ -665,6 +666,8 @@ class DresserFactory(ViewFactory[Dresser]):
         ):
             add_door_to_world(door_factory, parent_T_door, dresser_world)
 
+        self.add_drawers_to_world(dresser_world)
+
         dresser_view = Dresser(
             name=self.name,
             container=container_view,
@@ -691,12 +694,12 @@ class DresserFactory(ViewFactory[Dresser]):
                 drawer_factory=drawer_factory
             )
 
-            dof = parent_world.create_degree_of_freedom(
-                PrefixedName(
+            dof = DegreeOfFreedom(
+                name=PrefixedName(
                     f"{drawer_body.name.name}_connection", drawer_body.name.prefix
                 ),
-                lower_limits,
-                upper_limits,
+                lower_limits=lower_limits,
+                upper_limits=upper_limits,
             )
 
             connection = PrismaticConnection(

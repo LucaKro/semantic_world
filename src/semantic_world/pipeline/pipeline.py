@@ -274,6 +274,7 @@ class BodyFactoryReplace(Step):
                 self.world.remove_body(body)
 
             new_world = factory.create()
+            parent_connection.child = new_world.root
             self.world.merge_world(new_world, parent_connection)
 
 
