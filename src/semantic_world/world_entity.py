@@ -51,6 +51,7 @@ from .utils import IDGenerator
 from .variables import SpatialVariables
 
 if TYPE_CHECKING:
+    from .degree_of_freedom import DegreeOfFreedom
     from .world import World
 
 id_generator = IDGenerator()
@@ -498,6 +499,20 @@ class Connection(WorldEntity):
         position = self.origin_expression.to_position()[:3]
         orientation = self.origin_expression.to_quaternion()
         return cas.vstack([position, orientation]).T
+
+    @property
+    def dofs(self) -> Set[DegreeOfFreedom]:
+        """
+        Returns the degrees of freedom associated with this connection.
+        """
+        dofs = set()
+
+        if hasattr(self, 'active_dofs'):
+            dofs.update(set(self.active_dofs))
+        if hasattr(self, 'passive_dofs'):
+            dofs.update(set(self.passive_dofs))
+
+        return dofs
 
 
 def _is_body_view_or_iterable(obj: object) -> bool:
