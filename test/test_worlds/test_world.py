@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from semantic_world.connections import PrismaticConnection, RevoluteConnection, Connection6DoF
+from semantic_world.connections import PrismaticConnection, RevoluteConnection, Connection6DoF, FixedConnection
 from semantic_world.exceptions import AddingAnExistingViewError, DuplicateViewError, ViewNotFoundError
 from semantic_world.prefixed_name import PrefixedName
 from semantic_world.spatial_types.derivatives import Derivatives
@@ -354,3 +354,22 @@ def test_merge_with_pose_rotation(world_setup, pr2_world):
     assert fk_base[1, 3] == pytest.approx(1.0, abs=1e-6)
     assert fk_base[2, 3] == pytest.approx(0.0, abs=1e-6)
     np.testing.assert_array_almost_equal(rotation_matrix_from_rpy(0, 0, np.pi / 2)[:3, :3], fk_base[:3, :3], decimal=6)
+
+def test_remove_connection(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    connection = world.get_connection(l1, l2)
+    with world.modify_world():
+        world.remove_connection(connection)
+        world.remove_body(l2)
+    assert connection not in world.connections
+    # dof should still exist because it was a mimic connection.
+    assert connection.dof.name in world.state
+
+    with world.modify_world():
+        world.remove_connection(world.get_connection(r1, r2))
+        new_connection = FixedConnection(r1, r2)
+        world.add_connection(new_connection)
+
+    with pytest.raises(ValueError):
+        # if you remove a connection, the child must be connected some other way or deleted
+        world.remove_connection(world.get_connection(r1, r2))

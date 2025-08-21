@@ -549,27 +549,32 @@ class World:
             logger.debug("Trying to remove a body that is not part of this world.")
 
     @modifies_world
+    def remove_connection(self, connection: Connection) -> None:
+        """
+        Removes a connection and deletes the corresponding degree of freedom, if it was only used by this connection.
+        Might create disconnected bodies, so make sure to add a new connection or delete the child body.
+
+        :param connection: The connection to be removed
+        """
+        remaining_dofs = set()
+        for remaining_connection in self.connections:
+            if remaining_connection == connection:
+                continue
+            remaining_dofs.update(remaining_connection.dofs)
+
+        for dof in connection.dofs:
+            if dof not in remaining_dofs:
+                self.degrees_of_freedom.remove(dof)
+                del self.state[dof.name]
+        self.kinematic_structure.remove_edge(connection.parent.index, connection.child.index)
+
+    @modifies_world
     def remove_region(self, region: Region) -> None:
         if region._world is self:
             self.regions.remove(region)
             region._world = None
         else:
             logger.debug("Trying to remove a region that is not part of this world.")
-
-    @modifies_world
-    def remove_connection(self, connection: Connection) -> None:
-        if connection._world is self:
-            connection._world = None
-            if isinstance(connection, ActiveConnection):
-                self.degrees_of_freedom = [
-                    dof
-                    for dof in self.degrees_of_freedom
-                    if dof not in connection.active_dofs
-                ]
-        else:
-            logger.debug(
-                "Trying to remove a connection that is not part of this world."
-            )
 
     @modifies_world
     def merge_world(self, other: World, root_connection: Connection = None) -> None:
