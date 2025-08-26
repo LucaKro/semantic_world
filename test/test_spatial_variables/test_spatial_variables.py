@@ -13,9 +13,9 @@ class TestSpatialVariables(unittest.TestCase):
         self.assertTrue(hasattr(SpatialVariables, "y"))
         self.assertTrue(hasattr(SpatialVariables, "z"))
 
-        self.assertEqual(SpatialVariables.x.value, Continuous('x'))
-        self.assertEqual(SpatialVariables.y.value, Continuous('y'))
-        self.assertEqual(SpatialVariables.z.value, Continuous('z'))
+        self.assertEqual(SpatialVariables.x.value, Continuous("x"))
+        self.assertEqual(SpatialVariables.y.value, Continuous("y"))
+        self.assertEqual(SpatialVariables.z.value, Continuous("z"))
 
         # Distinct members and distinct underlying values
         self.assertNotEqual(SpatialVariables.x, SpatialVariables.y)
@@ -45,7 +45,6 @@ class TestSpatialVariables(unittest.TestCase):
         self.assertEqual(set(yz), expected, "yz should contain exactly y and z values")
         if SortedSet is not None:
             self.assertIsInstance(yz, SortedSet)
-
 
 
 if __name__ == "__main__":

@@ -4,13 +4,14 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Generic, TypeVar, List, Optional
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class Derivatives(IntEnum):
     """
     Enumaration of interpretation for the order of derivativeson the spatial positions
     """
+
     position = 0
     velocity = 1
     acceleration = 2

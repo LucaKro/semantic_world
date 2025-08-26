@@ -15,23 +15,28 @@ from ..utils import suppress_stdout_stderr, hacky_urdf_parser_fix
 from ..world import World, Body, Connection
 
 connection_type_map = {  # 'unknown': JointType.UNKNOWN,
-    'revolute': RevoluteConnection,
-    'continuous': RevoluteConnection,
-    'prismatic': PrismaticConnection,
+    "revolute": RevoluteConnection,
+    "continuous": RevoluteConnection,
+    "prismatic": PrismaticConnection,
     # 'floating': JointType.FLOATING,
     # 'planar': JointType.PLANAR,
-    'fixed': FixedConnection}
+    "fixed": FixedConnection,
+}
 
 
-def urdf_joint_to_limits(urdf_joint: urdf.Joint) -> Tuple[DerivativeMap[float], DerivativeMap[float]]:
+def urdf_joint_to_limits(
+    urdf_joint: urdf.Joint,
+) -> Tuple[DerivativeMap[float], DerivativeMap[float]]:
     lower_limits = DerivativeMap()
     upper_limits = DerivativeMap()
-    if not urdf_joint.type == 'continuous':
+    if not urdf_joint.type == "continuous":
         try:
-            lower_limits.position = max(urdf_joint.safety_controller.soft_lower_limit,
-                                                     urdf_joint.limit.lower)
-            upper_limits.position = min(urdf_joint.safety_controller.soft_upper_limit,
-                                                     urdf_joint.limit.upper)
+            lower_limits.position = max(
+                urdf_joint.safety_controller.soft_lower_limit, urdf_joint.limit.lower
+            )
+            upper_limits.position = min(
+                urdf_joint.safety_controller.soft_upper_limit, urdf_joint.limit.upper
+            )
         except AttributeError:
             try:
                 lower_limits.position = urdf_joint.limit.lower
@@ -56,7 +61,10 @@ def urdf_joint_to_limits(urdf_joint: urdf.Joint) -> Tuple[DerivativeMap[float], 
             lower_limits.data[d2] -= offset
             upper_limits.data[d2] -= offset
             if multiplier < 0:
-                upper_limits.data[d2], lower_limits.data[d2] = lower_limits.data[d2], upper_limits.data[d2]
+                upper_limits.data[d2], lower_limits.data[d2] = (
+                    lower_limits.data[d2],
+                    upper_limits.data[d2],
+                )
             upper_limits.data[d2] /= multiplier
             lower_limits.data[d2] /= multiplier
     return lower_limits, upper_limits
@@ -80,7 +88,7 @@ class URDFParser:
 
     def __post_init__(self):
         if self.prefix is None:
-            self.prefix = os.path.basename(self.file_path).split('.')[0]
+            self.prefix = os.path.basename(self.file_path).split(".")[0]
 
     def parse(self) -> World:
         # cache_dir = os.path.join(os.getcwd(), '..', '..', '../resources', 'cache')
@@ -88,12 +96,15 @@ class URDFParser:
         # new_file_path = os.path.join(cache_dir, file_name)
         # generate_from_description_file(self.file_path, new_file_path)
 
-        with open(self.file_path, 'r') as file:
+        with open(self.file_path, "r") as file:
             # Since parsing URDF causes a lot of warning messages which can't be deactivated, we suppress them
             with suppress_stdout_stderr():
                 self.parsed = urdf.URDF.from_xml_string(hacky_urdf_parser_fix(file.read()))
 
-        links = [self.parse_link(link, PrefixedName(link.name, self.parsed.name)) for link in self.parsed.links]
+        links = [
+            self.parse_link(link, PrefixedName(link.name, self.parsed.name))
+            for link in self.parsed.links
+        ]
         root = [link for link in links if link.name.name == self.parsed.get_root()][0]
         world = World()
         world.name = self.prefix
@@ -124,12 +135,14 @@ class URDFParser:
             translation_offset = [0, 0, 0]
         if rotation_offset is None:
             rotation_offset = [0, 0, 0]
-        parent_T_child = cas.TransformationMatrix.from_xyz_rpy(x=translation_offset[0],
-                                                               y=translation_offset[1],
-                                                               z=translation_offset[2],
-                                                               roll=rotation_offset[0],
-                                                               pitch=rotation_offset[1],
-                                                               yaw=rotation_offset[2])
+        parent_T_child = cas.TransformationMatrix.from_xyz_rpy(
+            x=translation_offset[0],
+            y=translation_offset[1],
+            z=translation_offset[2],
+            roll=rotation_offset[0],
+            pitch=rotation_offset[1],
+            yaw=rotation_offset[2],
+        )
         if connection_type == FixedConnection:
             return connection_type(parent=parent, child=child, origin_expression=parent_T_child)
 
@@ -161,11 +174,15 @@ class URDFParser:
             )
             world.add_degree_of_freedom(dof)
 
-        result = connection_type(parent=parent, child=child, origin_expression=parent_T_child,
-                                 multiplier=multiplier, offset=offset,
-                                 axis=Vector3(*map(int, joint.axis),
-                                                 reference_frame=parent),
-                                 dof=dof)
+        result = connection_type(
+            parent=parent,
+            child=child,
+            origin_expression=parent_T_child,
+            multiplier=multiplier,
+            offset=offset,
+            axis=Vector3(*map(int, joint.axis), reference_frame=parent),
+            dof=dof,
+        )
         return result
 
     def parse_link(self, link: urdf.Link, parent_frame: PrefixedName) -> Body:
@@ -180,8 +197,9 @@ class URDFParser:
         collisions = self.parse_geometry(link.collisions, parent_frame)
         return Body(name=name, visual=visuals, collision=collisions)
 
-    def parse_geometry(self, geometry: Union[List[urdf.Collision], List[urdf.Visual]], parent_frame: PrefixedName) -> \
-            List[Shape]:
+    def parse_geometry(
+        self, geometry: Union[List[urdf.Collision], List[urdf.Visual]], parent_frame: PrefixedName
+    ) -> List[Shape]:
         """
         Parses a URDF geometry to the corresponding shapes.
         :param geometry: The URDF geometry to parse either the collisions of visuals.'
@@ -189,45 +207,71 @@ class URDFParser:
         :return: A List of shapes corresponding to the URDF geometry.
         """
         res = []
-        material_dict = dict(zip([material.name for material in self.parsed.materials],
-                                 [material.color.rgba if material.color else None for material in
-                                  self.parsed.materials]))
+        material_dict = dict(
+            zip(
+                [material.name for material in self.parsed.materials],
+                [
+                    material.color.rgba if material.color else None
+                    for material in self.parsed.materials
+                ],
+            )
+        )
         for i, geom in enumerate(geometry):
-            params = (*(geom.origin.xyz + geom.origin.rpy),) if geom.origin else (0, 0, 0, 0, 0, 0,)
+            params = (
+                (*(geom.origin.xyz + geom.origin.rpy),)
+                if geom.origin
+                else (
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                )
+            )
             origin_transform = TransformationMatrix.from_xyz_rpy(*params)
             if isinstance(geom.geometry, urdf.Box):
-                color = Color(*material_dict.get(geom.material.name,
-                                                 (1, 1, 1, 1))) if hasattr(geom,
-                                                                           "material") and geom.material else Color(
-                    1,
-                    1,
-                    1,
-                    1)
-                res.append(Box(origin=origin_transform, scale=Scale(*geom.geometry.size), color=color))
+                color = (
+                    Color(*material_dict.get(geom.material.name, (1, 1, 1, 1)))
+                    if hasattr(geom, "material") and geom.material
+                    else Color(1, 1, 1, 1)
+                )
+                res.append(
+                    Box(origin=origin_transform, scale=Scale(*geom.geometry.size), color=color)
+                )
             elif isinstance(geom.geometry, urdf.Sphere):
-                color = Color(*material_dict.get(geom.material.name,
-                                                 (1, 1, 1, 1))) if hasattr(geom,
-                                                                           "material") and geom.material else Color(
-                    1,
-                    1,
-                    1,
-                    1)
-                res.append(Sphere(origin=origin_transform, radius=geom.geometry.radius, color=color))
+                color = (
+                    Color(*material_dict.get(geom.material.name, (1, 1, 1, 1)))
+                    if hasattr(geom, "material") and geom.material
+                    else Color(1, 1, 1, 1)
+                )
+                res.append(
+                    Sphere(origin=origin_transform, radius=geom.geometry.radius, color=color)
+                )
             elif isinstance(geom.geometry, urdf.Cylinder):
-                color = Color(*material_dict.get(geom.material.name,
-                                                 (1, 1, 1, 1))) if hasattr(geom,
-                                                                           "material") and geom.material else Color(
-                    1,
-                    1,
-                    1,
-                    1)
-                res.append(Cylinder(origin=origin_transform, width=geom.geometry.radius, height=geom.geometry.length,
-                                    color=color))
+                color = (
+                    Color(*material_dict.get(geom.material.name, (1, 1, 1, 1)))
+                    if hasattr(geom, "material") and geom.material
+                    else Color(1, 1, 1, 1)
+                )
+                res.append(
+                    Cylinder(
+                        origin=origin_transform,
+                        width=geom.geometry.radius,
+                        height=geom.geometry.length,
+                        color=color,
+                    )
+                )
             elif isinstance(geom.geometry, urdf.Mesh):
                 if geom.geometry.filename is None:
                     raise ValueError("Mesh geometry must have a filename.")
-                res.append(Mesh(origin=origin_transform, filename=self.parse_file_path(geom.geometry.filename),
-                                scale=Scale(*(geom.geometry.scale or (1, 1, 1)))))
+                res.append(
+                    Mesh(
+                        origin=origin_transform,
+                        filename=self.parse_file_path(geom.geometry.filename),
+                        scale=Scale(*(geom.geometry.scale or (1, 1, 1))),
+                    )
+                )
         return res
 
     @staticmethod
@@ -241,13 +285,15 @@ class URDFParser:
             try:
                 from ament_index_python.packages import get_package_share_directory
             except ImportError:
-                raise ImportError("No ROS install found while the URDF file contains references to ROS packages. ")
+                raise ImportError(
+                    "No ROS install found while the URDF file contains references to ROS packages. "
+                )
             # Splits the file path at '//' to get the package  and the rest of the path
-            package_split = file_path.split('//')
+            package_split = file_path.split("//")
             # Splits the path after the // to get the package name and the rest of the path
-            package_name = package_split[1].split('/')[0]
+            package_name = package_split[1].split("/")[0]
             package_path = get_package_share_directory(package_name)
             file_path = file_path.replace("package://" + package_name, package_path)
-        if 'file://' in file_path:
-            file_path = file_path.replace("file://", './')
+        if "file://" in file_path:
+            file_path = file_path.replace("file://", "./")
         return file_path

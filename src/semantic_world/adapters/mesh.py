@@ -17,6 +17,7 @@ class MeshParser:
     """
     Adapter for mesh files.
     """
+
     file_path: str
     """
     The path to the mesh file.
@@ -79,6 +80,7 @@ class FBXParser(MeshParser):
     """
     Adapter for FBX files.
     """
+
     def parse(self) -> World:
         """
         Parse the FBX file, each object in the FBX file is converted to a body in the world and the meshes are loaded
@@ -100,8 +102,13 @@ class FBXParser(MeshParser):
                     meshes = []
                     for o in obj.children:
                         if isinstance(o, FBXMesh):
-                            t_mesh = TriangleMesh(origin=TransformationMatrix(), mesh=trimesh.Trimesh(vertices=o.vertices,faces=o.faces))
-                            t_mesh.mesh.vertices = o.vertices[:, [0, 2, 1]] / 100  # Convert from cm to m and switch Y and Z axes
+                            t_mesh = TriangleMesh(
+                                origin=TransformationMatrix(),
+                                mesh=trimesh.Trimesh(vertices=o.vertices, faces=o.faces),
+                            )
+                            t_mesh.mesh.vertices = (
+                                o.vertices[:, [0, 2, 1]] / 100
+                            )  # Convert from cm to m and switch Y and Z axes
                             meshes.append(t_mesh)
                     body = Body(name=PrefixedName(name), collision=meshes, visual=meshes)
                     world.add_kinematic_structure_entity(body)
@@ -109,23 +116,29 @@ class FBXParser(MeshParser):
             for obj in fbx.objects.values():
                 if type(obj) is Object3D:
                     name = fbx.fbxtree["Objects"]["Model"][obj.id]["attrName"]
-                    parent_name = fbx.fbxtree["Objects"]["Model"][obj.parent.id]["attrName"] if type(
-                        obj.parent) is not Scene else None
+                    parent_name = (
+                        fbx.fbxtree["Objects"]["Model"][obj.parent.id]["attrName"]
+                        if type(obj.parent) is not Scene
+                        else None
+                    )
                     if not parent_name:
                         continue
 
                     obj_body = world.get_kinematic_structure_entity_by_name(name)
-                    parent_body = world.get_kinematic_structure_entity_by_name(
-                        parent_name
-                    )
+                    parent_body = world.get_kinematic_structure_entity_by_name(parent_name)
 
                     translation = Point3(*obj.matrix[3, :3])
                     rotation_matrix = RotationMatrix(obj.matrix)
-                    parent_T_child = TransformationMatrix.from_point_rotation_matrix(translation,
-                                                                                     rotation_matrix,
-                                                                                     reference_frame=parent_body)
+                    parent_T_child = TransformationMatrix.from_point_rotation_matrix(
+                        translation, rotation_matrix, reference_frame=parent_body
+                    )
 
-                    connection = Connection6DoF(parent=parent_body, child=obj_body, _world=world, origin_expression=parent_T_child,)
+                    connection = Connection6DoF(
+                        parent=parent_body,
+                        child=obj_body,
+                        _world=world,
+                        origin_expression=parent_T_child,
+                    )
                     world.add_connection(connection)
 
         return world

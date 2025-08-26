@@ -15,6 +15,7 @@ import time
 from functools import reduce
 from operator import or_
 from typing import List, Optional, Dict
+
 # typing.Self is available starting with Python 3.11
 from typing_extensions import Self
 
@@ -71,9 +72,7 @@ class GraphOfConvexSets:
     The world that the graph is based on.
     """
 
-    def __init__(
-        self, world: World, search_space: Optional[BoundingBoxCollection] = None
-    ):
+    def __init__(self, world: World, search_space: Optional[BoundingBoxCollection] = None):
         self.search_space = self._make_search_space(world, search_space)
         self.graph = rx.PyGraph(multigraph=False)
         self.box_to_index_map = {}
@@ -91,9 +90,14 @@ class GraphOfConvexSets:
         """
 
         def _overlap(a_min, a_max, b_min, b_max) -> bool:
-            return (a_min[0] <= b_max[0] and b_min[0] <= a_max[0] and
-                    a_min[1] <= b_max[1] and b_min[1] <= a_max[1] and
-                    a_min[2] <= b_max[2] and b_min[2] <= a_max[2])
+            return (
+                a_min[0] <= b_max[0]
+                and b_min[0] <= a_max[0]
+                and a_min[1] <= b_max[1]
+                and b_min[1] <= a_max[1]
+                and a_min[2] <= b_max[2]
+                and b_min[2] <= a_max[2]
+            )
 
         def _intersection_box(a_min, a_max, b_min, b_max):
             return BoundingBox(
@@ -118,8 +122,14 @@ class GraphOfConvexSets:
         for n in node_list:
             mn = (n.min_x, n.min_y, n.min_z)
             mx = (n.max_x, n.max_y, n.max_z)
-            ex = (mn[0] - tolerance, mn[1] - tolerance, mn[2] - tolerance,
-                  mx[0] + tolerance, mx[1] + tolerance, mx[2] + tolerance)
+            ex = (
+                mn[0] - tolerance,
+                mn[1] - tolerance,
+                mn[2] - tolerance,
+                mx[0] + tolerance,
+                mx[1] + tolerance,
+                mx[2] + tolerance,
+            )
 
             orig_mins.append(mn)
             orig_maxs.append(mx)
@@ -140,6 +150,7 @@ class GraphOfConvexSets:
 
     def draw(self):
         import rustworkx.visualization
+
         rustworkx.visualization.mpl_draw(self.graph)
         plt.show()
 
@@ -194,7 +205,9 @@ class GraphOfConvexSets:
             return [start, goal]
 
         # get the shortest path (perhaps replace with a*?)
-        paths = rx.all_shortest_paths(self.graph, self.box_to_index_map[start_node], self.box_to_index_map[goal_node])
+        paths = rx.all_shortest_paths(
+            self.graph, self.box_to_index_map[start_node], self.box_to_index_map[goal_node]
+        )
 
         # if it is not possible to find a path
         if len(paths) == 0:
@@ -217,9 +230,7 @@ class GraphOfConvexSets:
         return result
 
     @classmethod
-    def _make_search_space(
-        cls, world: World, search_space: Optional[BoundingBoxCollection] = None
-    ):
+    def _make_search_space(cls, world: World, search_space: Optional[BoundingBoxCollection] = None):
         """
         Create the default search space if it is not given.
         """
@@ -251,6 +262,7 @@ class GraphOfConvexSets:
 
         :return: An event representing the obstacles in the search space.
         """
+
         def bloat_obstacle(bb):
             return bb.bloat(bloat_obstacles, bloat_obstacles, 0.01)
 
@@ -283,8 +295,9 @@ class GraphOfConvexSets:
         return cls.obstacles_from_bounding_boxes(bloated_obstacles, search_space.event, keep_z)
 
     @classmethod
-    def obstacles_from_bounding_boxes(cls, bounding_boxes: BoundingBoxCollection, search_space_event: Event,
-                                      keep_z: bool = True) -> Optional[Event]:
+    def obstacles_from_bounding_boxes(
+        cls, bounding_boxes: BoundingBoxCollection, search_space_event: Event, keep_z: bool = True
+    ) -> Optional[Event]:
         """
         Create a connectivity graph from a list of bounding boxes.
 
@@ -298,10 +311,7 @@ class GraphOfConvexSets:
         if not keep_z:
             search_space_event = search_space_event.marginal(SpatialVariables.xy)
 
-        events = (
-            bb.simple_event.as_composite_set() & search_space_event
-            for bb in bounding_boxes
-        )
+        events = (bb.simple_event.as_composite_set() & search_space_event for bb in bounding_boxes)
 
         # skip bbs outside the search space
         events = (event for event in events if not event.is_empty())
@@ -348,9 +358,7 @@ class GraphOfConvexSets:
         )
 
         if obstacles is None or obstacles.is_empty():
-            return cls(
-                search_space=search_space, world=search_space.reference_frame._world
-            )
+            return cls(search_space=search_space, world=search_space.reference_frame._world)
 
         search_event = search_space.event
 
@@ -440,9 +448,7 @@ class GraphOfConvexSets:
         )
 
         if obstacles is None or obstacles.is_empty():
-            return cls(
-                world=search_space.reference_frame._world, search_space=search_space
-            )
+            return cls(world=search_space.reference_frame._world, search_space=search_space)
 
         # remove the z axis
         og_search_event = search_space.event
@@ -459,9 +465,7 @@ class GraphOfConvexSets:
         free_space &= og_search_event
 
         # create a connectivity graph from the free space and calculate the edges
-        result = cls(
-            world=search_space.reference_frame._world, search_space=search_space
-        )
+        result = cls(world=search_space.reference_frame._world, search_space=search_space)
         free_space_boxes = BoundingBoxCollection.from_event(
             search_space.reference_frame, free_space
         )
@@ -471,9 +475,13 @@ class GraphOfConvexSets:
         return result
 
     @classmethod
-    def navigation_map_from_world(cls, world: World, tolerance=.001,
-                                  search_space: Optional[BoundingBoxCollection] = None,
-                                  bloat_obstacles: float = 0.) -> Self:
+    def navigation_map_from_world(
+        cls,
+        world: World,
+        tolerance=0.001,
+        search_space: Optional[BoundingBoxCollection] = None,
+        bloat_obstacles: float = 0.0,
+    ) -> Self:
         """
         Create a GCS from the free space in the belief state of the robot for navigation.
         The resulting GCS describes the paths for navigation, meaning that changing the z-axis position is not

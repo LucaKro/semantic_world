@@ -132,8 +132,11 @@ class WorldState(MutableMapping):
         return name in self._index
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({{ " + ", ".join(f"{n}: {list(self.data[:, i])}"
-                                                            for i, n in enumerate(self._names)) + " })"
+        return (
+            f"{self.__class__.__name__}({{ "
+            + ", ".join(f"{n}: {list(self.data[:, i])}" for i, n in enumerate(self._names))
+            + " })"
+        )
 
     def to_position_dict(self) -> Dict[PrefixedName, float]:
         return {joint_name: self[joint_name].position for joint_name in self._names}

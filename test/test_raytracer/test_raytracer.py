@@ -9,15 +9,13 @@ def test_create_segmentation_mask(world_setup_simple):
     rt = RayTracer(world)
     rt.update_scene()
 
-    camera_pose = np.array([[1.0, 0.0, 0.0, -2.5],
-                            [0.0, 1.0, 0.0, 0.0],
-                            [0.0, 0.0, 1.0, 0.2],
-                            [0.0, 0.0, 0.0, 1.0]])
+    camera_pose = np.array(
+        [[1.0, 0.0, 0.0, -2.5], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.2], [0.0, 0.0, 0.0, 1.0]]
+    )
 
-    world.get_connection(world.root, body2).origin = np.array([[1, 0, 0, -1],
-                                                               [0, 1, 0, 0],
-                                                               [0, 0, 1, 0],
-                                                               [0, 0, 0, 1]])
+    world.get_connection(world.root, body2).origin = np.array(
+        [[1, 0, 0, -1], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+    )
 
     seg = rt.create_segmentation_mask(camera_pose, resolution=256)
     assert seg.shape == (256, 256)  # Assuming a standard resolution
@@ -35,10 +33,9 @@ def test_create_depth_map(world_setup_simple):
     rt = RayTracer(world)
     rt.update_scene()
 
-    camera_pose = np.array([[1.0, 0.0, 0.0, -2.5],
-                            [0.0, 1.0, 0.0, 0.0],
-                            [0.0, 0.0, 1.0, 0.0],
-                            [0.0, 0.0, 0.0, 1.0]])
+    camera_pose = np.array(
+        [[1.0, 0.0, 0.0, -2.5], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
+    )
 
     depth_map = rt.create_depth_map(camera_pose, resolution=512)
     assert depth_map is not None
@@ -68,14 +65,12 @@ def test_ray_test(world_setup_simple):
 
 def test_ray_test_batch(world_setup_simple):
     world, body1, body2, body3, body4 = world_setup_simple
-    world.get_connection(world.root, body1).origin = np.array([[1, 0, 0, 1],
-                                                               [0, 1, 0, 0],
-                                                               [0, 0, 1, 0],
-                                                               [0, 0, 0, 1]])
-    world.get_connection(world.root, body2).origin = np.array([[1, 0, 0, -1],
-                                                               [0, 1, 0, 0],
-                                                               [0, 0, 1, 0],
-                                                               [0, 0, 0, 1]])
+    world.get_connection(world.root, body1).origin = np.array(
+        [[1, 0, 0, 1], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+    )
+    world.get_connection(world.root, body2).origin = np.array(
+        [[1, 0, 0, -1], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+    )
 
     rt = RayTracer(world)
     rt.update_scene()

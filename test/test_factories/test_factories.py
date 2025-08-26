@@ -61,7 +61,9 @@ class TestFactories(unittest.TestCase):
         self.assertEqual(len(door_views), 2)
 
         doors: list[Door] = door_views
-        self.assertEqual(set(world.root.child_kinematic_structure_entities), {doors[0].body, doors[1].body})
+        self.assertEqual(
+            set(world.root.child_kinematic_structure_entities), {doors[0].body, doors[1].body}
+        )
         self.assertIsInstance(doors[0].handle, Handle)
         self.assertIsInstance(doors[1].handle, Handle)
         self.assertNotEqual(doors[0].handle, doors[1].handle)

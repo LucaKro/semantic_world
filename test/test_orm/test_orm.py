@@ -24,13 +24,15 @@ class ORMTest(unittest.TestCase):
     engine: sqlalchemy.engine
     session: Session
 
-    urdf_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "resources", "urdf")
+    urdf_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", "resources", "urdf"
+    )
     table = os.path.join(urdf_dir, "table.urdf")
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.engine = create_engine('sqlite:///:memory:')
+        cls.engine = create_engine("sqlite:///:memory:")
         cls.table_world = URDFParser(cls.table).parse()
 
     def setUp(self):
@@ -57,17 +59,13 @@ class ORMTest(unittest.TestCase):
 
         queried_world = self.session.scalar(select(WorldMappingDAO))
         reconstructed = queried_world.from_dao()
-        
 
     def test_insert(self):
         origin = TransformationMatrix.from_xyz_rpy(1, 2, 3, 1, 2, 3)
-        scale = Scale(1., 1., 1.)
-        color = Color(0., 1., 1.)
+        scale = Scale(1.0, 1.0, 1.0)
+        color = Color(0.0, 1.0, 1.0)
         shape1 = Box(origin=origin, scale=scale, color=color)
-        b1 = Body(
-            name=PrefixedName("b1"),
-            collision=[shape1]
-        )
+        b1 = Body(name=PrefixedName("b1"), collision=[shape1])
 
         dao: BodyDAO = to_dao(b1)
 

@@ -42,9 +42,8 @@ class WorldMapping(AlternativeMapping[World]):
                 result.add_view(view)
             for dof in self.degrees_of_freedom:
                 d = DegreeOfFreedom(
-                    name=dof.name,
-                    lower_limits=dof.lower_limits,
-                    upper_limits=dof.upper_limits)
+                    name=dof.name, lower_limits=dof.lower_limits, upper_limits=dof.upper_limits
+                )
                 result.add_degree_of_freedom(d)
             result.delete_orphaned_dofs()
 
@@ -137,8 +136,7 @@ class TransformationMatrixMapping(AlternativeMapping[TransformationMatrix]):
     def create_instance(cls, obj: TransformationMatrix):
         position = obj.to_position()
         rotation = obj.to_quaternion()
-        result = cls(position=position,
-                     rotation=rotation)
+        result = cls(position=position, rotation=rotation)
         result.reference_frame = obj.reference_frame
         result.child_frame = obj.child_frame
 
@@ -147,8 +145,10 @@ class TransformationMatrixMapping(AlternativeMapping[TransformationMatrix]):
     def create_from_dao(self) -> TransformationMatrix:
         return TransformationMatrix.from_point_rotation_matrix(
             point=self.position,
-            rotation_matrix=RotationMatrix.from_quaternion(self.rotation), reference_frame=None,
-            child_frame=self.child_frame, )
+            rotation_matrix=RotationMatrix.from_quaternion(self.rotation),
+            reference_frame=None,
+            child_frame=self.child_frame,
+        )
 
 
 @dataclass
@@ -159,7 +159,9 @@ class DegreeOfFreedomMapping(AlternativeMapping[DegreeOfFreedom]):
 
     @classmethod
     def create_instance(cls, obj: DegreeOfFreedom):
-        return cls(name=obj.name, lower_limits=obj.lower_limits.data, upper_limits=obj.upper_limits.data)
+        return cls(
+            name=obj.name, lower_limits=obj.lower_limits.data, upper_limits=obj.upper_limits.data
+        )
 
     def create_from_dao(self) -> DegreeOfFreedom:
         lower_limits = DerivativeMap(data=self.lower_limits)

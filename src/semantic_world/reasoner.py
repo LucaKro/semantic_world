@@ -27,6 +27,7 @@ class WorldReasoner:
      >>> reasoner = WorldReasoner(world)
      >>> reasoner.fit_attribute("views", [Handle, Drawer])
     """
+
     world: World
     """
     The semantic world instance on which the reasoning is performed.
@@ -53,8 +54,8 @@ class WorldReasoner:
         :return: The inferred views of the world.
         """
         result = self.reason()
-        if 'views' in result:
-            views = result['views']
+        if "views" in result:
+            views = result["views"]
         else:
             views = []
         return views
@@ -78,16 +79,19 @@ class WorldReasoner:
         for attr_name, attr_value in self.result.items():
             if isinstance(getattr(self.world, attr_name), list):
                 attr_value = list(attr_value)
-            if attr_name == 'views':
+            if attr_name == "views":
                 for view in attr_value:
                     self.world.add_view(view, exists_ok=True)
             else:
                 setattr(self.world, attr_name, attr_value)
 
-    def fit_views(self, required_views: List[Type[View]],
-                  update_existing_views: bool = False,
-                  world_factory: Optional[Callable] = None,
-                  scenario: Optional[Callable] = None) -> None:
+    def fit_views(
+        self,
+        required_views: List[Type[View]],
+        update_existing_views: bool = False,
+        world_factory: Optional[Callable] = None,
+        scenario: Optional[Callable] = None,
+    ) -> None:
         """
         Fit the world RDR to the required view types.
 
@@ -96,12 +100,22 @@ class WorldReasoner:
         :param world_factory: Optional callable that can be used to recreate the world object.
         :param scenario: Optional callable that represents the test method or scenario that is being executed.
         """
-        self.fit_attribute("views", required_views, update_existing_rules=update_existing_views,
-                           world_factory=world_factory, scenario=scenario)
+        self.fit_attribute(
+            "views",
+            required_views,
+            update_existing_rules=update_existing_views,
+            world_factory=world_factory,
+            scenario=scenario,
+        )
 
-    def fit_attribute(self, attribute_name: str, attribute_types: List[Type[Any]], update_existing_rules: bool = False,
-                      world_factory: Optional[Callable] = None,
-                      scenario: Optional[Callable] = None) -> None:
+    def fit_attribute(
+        self,
+        attribute_name: str,
+        attribute_types: List[Type[Any]],
+        update_existing_rules: bool = False,
+        world_factory: Optional[Callable] = None,
+        scenario: Optional[Callable] = None,
+    ) -> None:
         """
         Fit the world RDR to the required attribute types.
 
@@ -113,6 +127,12 @@ class WorldReasoner:
         :param scenario: Optional callable that represents the test method or scenario that is being executed.
         """
         for attr_type in attribute_types:
-            case_query = CaseQuery(self.world, attribute_name, (attr_type,), False, case_factory=world_factory,
-                                   scenario=scenario)
+            case_query = CaseQuery(
+                self.world,
+                attribute_name,
+                (attr_type,),
+                False,
+                case_factory=world_factory,
+                scenario=scenario,
+            )
             self.rdr.fit_case(case_query, update_existing_rules=update_existing_rules)

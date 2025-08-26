@@ -81,9 +81,7 @@ class KinematicChain(RobotView, ABC):
         """
         Returns itself as a kinematic chain of KinematicStructureEntity.
         """
-        return self._world.compute_chain_of_kinematic_structure_entities(
-            self.root, self.tip
-        )
+        return self._world.compute_chain_of_kinematic_structure_entities(self.root, self.tip)
 
     @property
     def regions(self) -> Iterable[Region]:
@@ -387,9 +385,7 @@ class AbstractRobot(RootedView, ABC):
         Adds a torso to the robot's collection of kinematic chains.
         """
         if self.torso is not None:
-            raise ValueError(
-                f"Robot {self.name} already has a torso: {self.torso.name}."
-            )
+            raise ValueError(f"Robot {self.name} already has a torso: {self.torso.name}.")
         self.torso = torso
         self._views.add(torso)
         torso.assign_to_robot(self)
@@ -438,9 +434,7 @@ class PR2(AbstractRobot):
         elif arm_side == "right":
             self.right_arm = arm
         else:
-            raise ValueError(
-                f"Invalid arm side: {arm_side}. Must be 'left' or 'right'."
-            )
+            raise ValueError(f"Invalid arm side: {arm_side}. Must be 'left' or 'right'.")
 
         super().add_kinematic_chain(arm)
 
@@ -467,9 +461,7 @@ class PR2(AbstractRobot):
         :param neck: The neck kinematic chain to add.
         """
         if not neck.sensors:
-            raise ValueError(
-                f"Neck kinematic chain {neck.name} must have at least one sensor."
-            )
+            raise ValueError(f"Neck kinematic chain {neck.name} must have at least one sensor.")
         self.neck = neck
         super().add_kinematic_chain(neck)
 
@@ -485,55 +477,37 @@ class PR2(AbstractRobot):
 
         robot = cls(
             name=PrefixedName(name="pr2", prefix=world.name),
-            root=world.get_kinematic_structure_entity_by_name(
-                "base_footprint"
-            ),
+            root=world.get_kinematic_structure_entity_by_name("base_footprint"),
             _world=world,
         )
 
         # Create left arm
         left_gripper_thumb = Finger(
             name=PrefixedName("left_gripper_thumb", prefix=robot.name.name),
-            root=world.get_kinematic_structure_entity_by_name(
-                "l_gripper_l_finger_link"
-            ),
-            tip=world.get_kinematic_structure_entity_by_name(
-                "l_gripper_l_finger_tip_link"
-            ),
+            root=world.get_kinematic_structure_entity_by_name("l_gripper_l_finger_link"),
+            tip=world.get_kinematic_structure_entity_by_name("l_gripper_l_finger_tip_link"),
             _world=world,
         )
 
         left_gripper_finger = Finger(
             name=PrefixedName("left_gripper_finger", prefix=robot.name.name),
-            root=world.get_kinematic_structure_entity_by_name(
-                "l_gripper_r_finger_link"
-            ),
-            tip=world.get_kinematic_structure_entity_by_name(
-                "l_gripper_r_finger_tip_link"
-            ),
+            root=world.get_kinematic_structure_entity_by_name("l_gripper_r_finger_link"),
+            tip=world.get_kinematic_structure_entity_by_name("l_gripper_r_finger_tip_link"),
             _world=world,
         )
 
         left_gripper = ParallelGripper(
             name=PrefixedName("left_gripper", prefix=robot.name.name),
-            root=world.get_kinematic_structure_entity_by_name(
-                "l_gripper_palm_link"
-            ),
-            tool_frame=world.get_kinematic_structure_entity_by_name(
-                "l_gripper_tool_frame"
-            ),
+            root=world.get_kinematic_structure_entity_by_name("l_gripper_palm_link"),
+            tool_frame=world.get_kinematic_structure_entity_by_name("l_gripper_tool_frame"),
             thumb=left_gripper_thumb,
             finger=left_gripper_finger,
             _world=world,
         )
         left_arm = Arm(
             name=PrefixedName("left_arm", prefix=robot.name.name),
-            root=world.get_kinematic_structure_entity_by_name(
-                "torso_lift_link"
-            ),
-            tip=world.get_kinematic_structure_entity_by_name(
-                "l_wrist_roll_link"
-            ),
+            root=world.get_kinematic_structure_entity_by_name("torso_lift_link"),
+            tip=world.get_kinematic_structure_entity_by_name("l_wrist_roll_link"),
             manipulator=left_gripper,
             _world=world,
         )
@@ -543,44 +517,28 @@ class PR2(AbstractRobot):
         # Create right arm
         right_gripper_thumb = Finger(
             name=PrefixedName("right_gripper_thumb", prefix=robot.name.name),
-            root=world.get_kinematic_structure_entity_by_name(
-                "r_gripper_l_finger_link"
-            ),
-            tip=world.get_kinematic_structure_entity_by_name(
-                "r_gripper_l_finger_tip_link"
-            ),
+            root=world.get_kinematic_structure_entity_by_name("r_gripper_l_finger_link"),
+            tip=world.get_kinematic_structure_entity_by_name("r_gripper_l_finger_tip_link"),
             _world=world,
         )
         right_gripper_finger = Finger(
             name=PrefixedName("right_gripper_finger", prefix=robot.name.name),
-            root=world.get_kinematic_structure_entity_by_name(
-                "r_gripper_r_finger_link"
-            ),
-            tip=world.get_kinematic_structure_entity_by_name(
-                "r_gripper_r_finger_tip_link"
-            ),
+            root=world.get_kinematic_structure_entity_by_name("r_gripper_r_finger_link"),
+            tip=world.get_kinematic_structure_entity_by_name("r_gripper_r_finger_tip_link"),
             _world=world,
         )
         right_gripper = ParallelGripper(
             name=PrefixedName("right_gripper", prefix=robot.name.name),
-            root=world.get_kinematic_structure_entity_by_name(
-                "r_gripper_palm_link"
-            ),
-            tool_frame=world.get_kinematic_structure_entity_by_name(
-                "r_gripper_tool_frame"
-            ),
+            root=world.get_kinematic_structure_entity_by_name("r_gripper_palm_link"),
+            tool_frame=world.get_kinematic_structure_entity_by_name("r_gripper_tool_frame"),
             thumb=right_gripper_thumb,
             finger=right_gripper_finger,
             _world=world,
         )
         right_arm = Arm(
             name=PrefixedName("right_arm", prefix=robot.name.name),
-            root=world.get_kinematic_structure_entity_by_name(
-                "torso_lift_link"
-            ),
-            tip=world.get_kinematic_structure_entity_by_name(
-                "r_wrist_roll_link"
-            ),
+            root=world.get_kinematic_structure_entity_by_name("torso_lift_link"),
+            tip=world.get_kinematic_structure_entity_by_name("r_wrist_roll_link"),
             manipulator=right_gripper,
             _world=world,
         )
@@ -600,12 +558,8 @@ class PR2(AbstractRobot):
         neck = Neck(
             name=PrefixedName("neck", prefix=robot.name.name),
             sensors={camera},
-            root=world.get_kinematic_structure_entity_by_name(
-                "head_pan_link"
-            ),
-            tip=world.get_kinematic_structure_entity_by_name(
-                "head_tilt_link"
-            ),
+            root=world.get_kinematic_structure_entity_by_name("head_pan_link"),
+            tip=world.get_kinematic_structure_entity_by_name("head_tilt_link"),
             _world=world,
         )
         robot.add_neck(neck)
@@ -613,12 +567,8 @@ class PR2(AbstractRobot):
         # Create torso
         torso = Torso(
             name=PrefixedName("torso", prefix=robot.name.name),
-            root=world.get_kinematic_structure_entity_by_name(
-                "torso_lift_link"
-            ),
-            tip=world.get_kinematic_structure_entity_by_name(
-                "torso_lift_link"
-            ),
+            root=world.get_kinematic_structure_entity_by_name("torso_lift_link"),
+            tip=world.get_kinematic_structure_entity_by_name("torso_lift_link"),
             _world=world,
         )
         robot.add_torso(torso)

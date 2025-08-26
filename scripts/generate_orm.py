@@ -31,8 +31,15 @@ classes |= set(classes_of_module(semantic_world.views.views))
 classes |= set(classes_of_module(semantic_world.degree_of_freedom))
 
 # remove classes that should not be mapped
-classes -= {ResetStateContextManager, WorldModelUpdateContextManager, HasUpdateState,
-            World, ForwardKinematicsVisitor, Has1DOFState, DegreeOfFreedom}
+classes -= {
+    ResetStateContextManager,
+    WorldModelUpdateContextManager,
+    HasUpdateState,
+    World,
+    ForwardKinematicsVisitor,
+    Has1DOFState,
+    DegreeOfFreedom,
+}
 classes -= set(recursive_subclasses(Enum))
 
 
@@ -47,10 +54,10 @@ def generate_orm():
     # Generate the ORM classes
     ormatic.make_all_tables()
 
-    path = os.path.abspath(os.path.join(os.getcwd(), '../src/semantic_world/orm/'))
-    with open(os.path.join(path, 'ormatic_interface.py'), 'w') as f:
+    path = os.path.abspath(os.path.join(os.getcwd(), "../src/semantic_world/orm/"))
+    with open(os.path.join(path, "ormatic_interface.py"), "w") as f:
         ormatic.to_sqlalchemy_file(f)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     generate_orm()

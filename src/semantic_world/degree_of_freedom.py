@@ -14,7 +14,7 @@ from .world_entity import WorldEntity
 class DegreeOfFreedom(WorldEntity):
     """
     A class representing a degree of freedom in a world model with associated derivatives and limits.
-    
+
     This class manages a variable that can freely change within specified limits, tracking its position,
     velocity, acceleration, and jerk. It maintains symbolic representations for each derivative order
     and provides methods to get and set limits for these derivatives.
@@ -35,8 +35,9 @@ class DegreeOfFreedom(WorldEntity):
         self.lower_limits = self.lower_limits or DerivativeMap()
         self.upper_limits = self.upper_limits or DerivativeMap()
         for derivative in Derivatives.range(Derivatives.position, Derivatives.jerk):
-            s = symbol_manager.register_symbol_provider(f'{self.name}_{derivative}',
-                                                        lambda d=derivative: self._world.state[self.name][d])
+            s = symbol_manager.register_symbol_provider(
+                f"{self.name}_{derivative}", lambda d=derivative: self._world.state[self.name][d]
+            )
             self.symbols.data[derivative] = s
 
     def reset_cache(self):

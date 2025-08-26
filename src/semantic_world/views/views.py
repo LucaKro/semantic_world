@@ -95,9 +95,7 @@ class Table(View):
         p = uniform_measure_of_event(event)
         p = p.marginal(SpatialVariables.xy)
         samples = p.sample(amount)
-        z_coordinate = np.full(
-            (amount, 1), max([b.max_z for b in area_of_table]) + 0.01
-        )
+        z_coordinate = np.full((amount, 1), max([b.max_z for b in area_of_table]) + 0.01)
         samples = np.concatenate((samples, z_coordinate), axis=1)
         return [Point3(*s, reference_frame=self.top) for s in samples]
 
@@ -117,6 +115,7 @@ class Furniture(View): ...
 
 
 #################### subclasses von Components
+
 
 @dataclass(unsafe_hash=True)
 class EntryWay(Components):
@@ -138,8 +137,8 @@ class Door(EntryWay):
 
 @dataclass(unsafe_hash=True)
 class DoubleDoor(EntryWay):
-    left_door : Door
-    right_door : Door
+    left_door: Door
+    right_door: Door
 
     def __post_init__(self):
         if self.name is None:

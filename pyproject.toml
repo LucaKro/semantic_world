@@ -40,3 +40,9 @@ dependencies = {file = "requirements.txt"}
 gui = [
     "ripple_down_rules[gui]",
 ]
+
+# --- Formatting config shared in-repo ---
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]

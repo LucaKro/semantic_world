@@ -3,7 +3,7 @@ from semantic_world.adapters.urdf import URDFParser
 from semantic_world.views.views import Drawer
 
 
-def create_kitchen_world(kitchen_path: str = '../resources/urdf/kitchen-small.urdf'):
+def create_kitchen_world(kitchen_path: str = "../resources/urdf/kitchen-small.urdf"):
     return URDFParser(kitchen_path).parse()
 
 

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 id_generator = IDGenerator()
 
+
 @dataclass
 class Color:
     """
@@ -32,6 +33,7 @@ class Color:
     The values are stored as floats between 0 and 1.
     The default rgba_color is white.
     """
+
     R: float = 1
     """
     Red value of the color.
@@ -52,32 +54,35 @@ class Color:
     Opacity of the color.
     """
 
+
 @dataclass
 class Scale:
     """
     Dataclass for storing the scale of geometric objects.
     """
 
-    x: float = 1.
+    x: float = 1.0
     """
     The scale in the x direction.
     """
 
-    y: float = 1.
+    y: float = 1.0
     """
     The scale in the y direction.
     """
 
-    z: float = 1.
+    z: float = 1.0
     """
     The scale in the z direction.
     """
+
 
 @dataclass
 class Shape(ABC):
     """
     Base class for all shapes in the world.
     """
+
     origin: TransformationMatrix = field(default_factory=TransformationMatrix)
 
     @property
@@ -96,6 +101,7 @@ class Shape(ABC):
         This should be implemented by subclasses.
         """
         ...
+
 
 @dataclass
 class Mesh(Shape):
@@ -128,6 +134,7 @@ class Mesh(Shape):
         The bounding box is axis-aligned and centered at the origin.
         """
         return BoundingBox.from_mesh(self.mesh, self.origin.reference_frame)
+
 
 @dataclass
 class TriangleMesh(Shape):
@@ -162,6 +169,7 @@ class Primitive(Shape, ABC):
     """
     A primitive shape.
     """
+
     color: Color = field(default_factory=Color)
 
 
@@ -188,8 +196,15 @@ class Sphere(Primitive):
         """
         Returns the bounding box of the sphere.
         """
-        return BoundingBox(-self.radius, -self.radius, -self.radius,
-                           self.radius, self.radius, self.radius, self.origin.reference_frame)
+        return BoundingBox(
+            -self.radius,
+            -self.radius,
+            -self.radius,
+            self.radius,
+            self.radius,
+            self.radius,
+            self.origin.reference_frame,
+        )
 
 
 @dataclass
@@ -197,6 +212,7 @@ class Cylinder(Primitive):
     """
     A cylinder shape.
     """
+
     width: float = 0.5
     height: float = 0.5
 
@@ -215,8 +231,15 @@ class Cylinder(Primitive):
         """
         half_width = self.width / 2
         half_height = self.height / 2
-        return BoundingBox(-half_width, -half_width, -half_height,
-                           half_width, half_width, half_height, self.origin.reference_frame)
+        return BoundingBox(
+            -half_width,
+            -half_width,
+            -half_height,
+            half_width,
+            half_width,
+            half_height,
+            self.origin.reference_frame,
+        )
 
 
 @dataclass
@@ -224,6 +247,7 @@ class Box(Primitive):
     """
     A box shape. Pivot point is at the center of the box.
     """
+
     scale: Scale = field(default_factory=Scale)
 
     @property
@@ -340,11 +364,15 @@ class BoundingBox:
         """
         :return: The bounding box as a random event.
         """
-        return SimpleEvent({SpatialVariables.x.value: self.x_interval,
-                            SpatialVariables.y.value: self.y_interval,
-                            SpatialVariables.z.value: self.z_interval})
+        return SimpleEvent(
+            {
+                SpatialVariables.x.value: self.x_interval,
+                SpatialVariables.y.value: self.y_interval,
+                SpatialVariables.z.value: self.z_interval,
+            }
+        )
 
-    def bloat(self, x_amount: float = 0., y_amount: float = 0, z_amount: float = 0) -> BoundingBox:
+    def bloat(self, x_amount: float = 0.0, y_amount: float = 0, z_amount: float = 0) -> BoundingBox:
         """
         Enlarges the bounding box by a given amount in all dimensions.
 
@@ -367,7 +395,11 @@ class BoundingBox:
         """
         Check if the bounding box contains a point.
         """
-        x, y, z = (point.x.to_np(), point.y.to_np(), point.z.to_np()) if isinstance(point.z, Expression) else (point.x, point.y, point.z)
+        x, y, z = (
+            (point.x.to_np(), point.y.to_np(), point.z.to_np())
+            if isinstance(point.z, Expression)
+            else (point.x, point.y, point.z)
+        )
 
         return self.simple_event.contains((x, y, z))
 
@@ -388,9 +420,11 @@ class BoundingBox:
         :return: The list of bounding boxes.
         """
         result = []
-        for x, y, z in itertools.product(simple_event[SpatialVariables.x.value].simple_sets,
-                                         simple_event[SpatialVariables.y.value].simple_sets,
-                                         simple_event[SpatialVariables.z.value].simple_sets):
+        for x, y, z in itertools.product(
+            simple_event[SpatialVariables.x.value].simple_sets,
+            simple_event[SpatialVariables.y.value].simple_sets,
+            simple_event[SpatialVariables.z.value].simple_sets,
+        ):
             result.append(cls(x.lower, y.lower, z.lower, x.upper, y.upper, z.upper))
         return result
 
@@ -406,8 +440,15 @@ class BoundingBox:
             return None
         return self.__class__.from_simple_event(result)[0]
 
-    def enlarge(self, min_x: float = 0., min_y: float = 0, min_z: float = 0,
-                max_x: float = 0., max_y: float = 0., max_z: float = 0.):
+    def enlarge(
+        self,
+        min_x: float = 0.0,
+        min_y: float = 0,
+        min_z: float = 0,
+        max_x: float = 0.0,
+        max_y: float = 0.0,
+        max_z: float = 0.0,
+    ):
         """
         Enlarge the axis-aligned bounding box by a given amount in-place.
         :param min_x: The amount to enlarge the minimum x-coordinate
@@ -430,8 +471,7 @@ class BoundingBox:
 
         :param amount: The amount to enlarge the bounding box
         """
-        self.enlarge(amount, amount, amount,
-                     amount, amount, amount)
+        self.enlarge(amount, amount, amount, amount, amount, amount)
 
     @classmethod
     def from_mesh(cls, mesh: trimesh.Trimesh, reference_frame: KinematicStructureEntity) -> Self:
@@ -442,7 +482,15 @@ class BoundingBox:
         :return: The bounding box.
         """
         bounds = mesh.bounds
-        return cls(bounds[0][0], bounds[0][1], bounds[0][2], bounds[1][0], bounds[1][1], bounds[1][2], reference_frame=reference_frame)
+        return cls(
+            bounds[0][0],
+            bounds[0][1],
+            bounds[0][2],
+            bounds[1][0],
+            bounds[1][1],
+            bounds[1][2],
+            reference_frame=reference_frame,
+        )
 
     def get_points(self) -> List[Point3]:
         """
@@ -450,15 +498,15 @@ class BoundingBox:
 
         :return: A list of Point3 objects representing the corners of the bounding box.
         """
-        return [Point3(x, y, z)
-                for x in (self.min_x, self.max_x)
-                for y in (self.min_y, self.max_y)
-                for z in (self.min_z, self.max_z)]
+        return [
+            Point3(x, y, z)
+            for x in (self.min_x, self.max_x)
+            for y in (self.min_y, self.max_y)
+            for z in (self.min_z, self.max_z)
+        ]
 
     @classmethod
-    def from_min_max(
-        cls, min_point: Point3, max_point: Point3
-    ) -> Self:
+    def from_min_max(cls, min_point: Point3, max_point: Point3) -> Self:
         """
         Set the axis-aligned bounding box from a minimum and maximum point.
 
@@ -466,7 +514,9 @@ class BoundingBox:
         :param max_point: The maximum point
         """
         assert min_point.reference_frame is not None
-        assert min_point.reference_frame == max_point.reference_frame, "The reference frames of the minimum and maximum points must be the same."
+        assert (
+            min_point.reference_frame == max_point.reference_frame
+        ), "The reference frames of the minimum and maximum points must be the same."
         return cls(
             *min_point.to_np()[:3],
             *max_point.to_np()[:3],
@@ -474,15 +524,13 @@ class BoundingBox:
         )
 
     def as_shape(self) -> Box:
-        scale = Scale(x=self.max_x - self.min_x,
-                      y=self.max_y - self.min_y,
-                      z=self.max_z - self.min_z)
+        scale = Scale(
+            x=self.max_x - self.min_x, y=self.max_y - self.min_y, z=self.max_z - self.min_z
+        )
         x = (self.max_x + self.min_x) / 2
         y = (self.max_y + self.min_y) / 2
         z = (self.max_z + self.min_z) / 2
-        origin = TransformationMatrix.from_xyz_rpy(
-            x, y, z, 0, 0, 0, self.reference_frame
-        )
+        origin = TransformationMatrix.from_xyz_rpy(x, y, z, 0, 0, 0, self.reference_frame)
         return Box(origin=origin, scale=scale)
 
     def transform_to_frame(self, reference_frame: KinematicStructureEntity) -> Self:
@@ -492,9 +540,7 @@ class BoundingBox:
 
         world = self.reference_frame._world
         origin_frame = self.reference_frame
-        reference_T_origin = world.compute_forward_kinematics(
-            reference_frame, origin_frame
-        )
+        reference_T_origin = world.compute_forward_kinematics(reference_frame, origin_frame)
 
         # Get all 8 corners of the BB in link-local space
         list_origin_T_corner = [
@@ -503,8 +549,7 @@ class BoundingBox:
         ]  # shape (8, 3)
 
         list_reference_T_corner = [
-            reference_T_origin @ origin_T_corner
-            for origin_T_corner in list_origin_T_corner
+            reference_T_origin @ origin_T_corner for origin_T_corner in list_origin_T_corner
         ]
 
         list_reference_P_corner = [
@@ -518,7 +563,7 @@ class BoundingBox:
 
         world_bb = BoundingBox.from_min_max(
             Point3.from_iterable(min_corner, reference_frame=reference_frame),
-            Point3.from_iterable(max_corner, reference_frame=reference_frame)
+            Point3.from_iterable(max_corner, reference_frame=reference_frame),
         )
 
         return world_bb
@@ -540,9 +585,11 @@ class BoundingBoxCollection:
     The list of bounding boxes.
     """
 
-    def  __post_init__(self):
+    def __post_init__(self):
         for box in self.bounding_boxes:
-            assert box.reference_frame == self.reference_frame, "All bounding boxes must have the same reference frame."
+            assert (
+                box.reference_frame == self.reference_frame
+            ), "All bounding boxes must have the same reference frame."
 
     def __iter__(self) -> Iterator[BoundingBox]:
         return iter(self.bounding_boxes)
@@ -565,7 +612,9 @@ class BoundingBoxCollection:
             self.reference_frame, self.bounding_boxes + other.bounding_boxes
         )
 
-    def bloat(self, x_amount: float = 0., y_amount: float = 0, z_amount: float = 0) -> BoundingBoxCollection:
+    def bloat(
+        self, x_amount: float = 0.0, y_amount: float = 0, z_amount: float = 0
+    ) -> BoundingBoxCollection:
         """
         Enlarges all bounding boxes in the collection by a given amount in all dimensions.
 
@@ -596,13 +645,13 @@ class BoundingBoxCollection:
         :return: The list of bounding boxes.
         """
         result = []
-        for x, y, z in itertools.product(simple_event[SpatialVariables.x.value].simple_sets,
-                                         simple_event[SpatialVariables.y.value].simple_sets,
-                                         simple_event[SpatialVariables.z.value].simple_sets):
+        for x, y, z in itertools.product(
+            simple_event[SpatialVariables.x.value].simple_sets,
+            simple_event[SpatialVariables.y.value].simple_sets,
+            simple_event[SpatialVariables.z.value].simple_sets,
+        ):
 
-            bb = BoundingBox(
-                x.lower, y.lower, z.lower, x.upper, y.upper, z.upper, reference_frame
-            )
+            bb = BoundingBox(x.lower, y.lower, z.lower, x.upper, y.upper, z.upper, reference_frame)
             if not keep_surface and (bb.depth == 0 or bb.height == 0 or bb.width == 0):
                 continue
             result.append(bb)
