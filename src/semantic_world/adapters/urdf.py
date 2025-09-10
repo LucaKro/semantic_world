@@ -2,27 +2,12 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing_extensions import Optional, Tuple, Union, List, Dict
 
+from typing_extensions import Optional, Tuple, Union, List, Dict
 from urdf_parser_py import urdf as urdfpy
 
-from ..world_description.connections import (
-    RevoluteConnection,
-    PrismaticConnection,
-    FixedConnection,
-)
-from ..world_description.degree_of_freedom import DegreeOfFreedom
-from ..exceptions import ParsingError
-from ..world_description.geometry import (
-    Box,
-    Sphere,
-    Cylinder,
-    FileMesh,
-    Scale,
-    Shape,
-    Color,
-)
 from ..datastructures.prefixed_name import PrefixedName
+from ..exceptions import ParsingError
 from ..spatial_types import spatial_types as cas
 from ..spatial_types.derivatives import Derivatives, DerivativeMap
 from ..spatial_types.spatial_types import TransformationMatrix, Vector3
@@ -32,6 +17,21 @@ from ..utils import (
     robot_name_from_urdf_string,
 )
 from ..world import World, Body, Connection
+from ..world_description.connections import (
+    RevoluteConnection,
+    PrismaticConnection,
+    FixedConnection,
+)
+from ..world_description.degree_of_freedom import DegreeOfFreedom
+from ..world_description.geometry import (
+    Box,
+    Sphere,
+    Cylinder,
+    FileMesh,
+    Scale,
+    Shape,
+    Color,
+)
 
 connection_type_map = {  # 'unknown': JointType.UNKNOWN,
     "revolute": RevoluteConnection,
@@ -162,7 +162,14 @@ class URDFParser:
             for joint in self.parsed.joints:
                 parent = [link for link in links if link.name.name == joint.parent][0]
                 child = [link for link in links if link.name.name == joint.child][0]
-                parsed_joint = self.parse_joint(joint, parent, child, world, prefix)
+                mimiced_joint_limits = None
+                if joint.mimic is not None:
+                    mimiced_joint_limits = urdf_joint_to_limits(
+                        self.parsed.joint_map[joint.mimic.joint]
+                    )
+                parsed_joint = self.parse_joint(
+                    joint, parent, child, world, prefix, mimiced_joint_limits
+                )
                 joints.append(parsed_joint)
 
             [world.add_connection(joint) for joint in joints]
@@ -171,7 +178,15 @@ class URDFParser:
         return world
 
     def parse_joint(
-        self, joint: urdfpy.Joint, parent: Body, child: Body, world: World, prefix: str
+        self,
+        joint: urdfpy.Joint,
+        parent: Body,
+        child: Body,
+        world: World,
+        prefix: str,
+        mimiced_joint_limits: Optional[
+            Tuple[DerivativeMap[float], DerivativeMap[float]]
+        ] = None,
     ) -> Connection:
         """
         Parses a given URDF joint and creates a corresponding connection object.
@@ -188,6 +203,7 @@ class URDFParser:
         :param child: The child body to be connected by the joint.
         :param world: The world instance containing degrees of freedom.
         :param prefix: The prefix for naming connections and DOFs.
+        :param mimiced_joint_limits: Optional limits for mimicked joints.
         :return: A connection object representing the parsed joint.
         """
         connection_name = PrefixedName(joint.name, prefix)
@@ -218,7 +234,10 @@ class URDFParser:
                 origin_expression=parent_T_child,
             )
 
-        lower_limits, upper_limits = urdf_joint_to_limits(joint)
+        if joint.limit is None and mimiced_joint_limits is not None:
+            lower_limits, upper_limits = mimiced_joint_limits
+        else:
+            lower_limits, upper_limits = urdf_joint_to_limits(joint)
         is_mimic = joint.mimic is not None
         multiplier = None
         offset = None
