@@ -28,3 +28,4 @@ polytope
 ortools
 fbxloader
 coacd
+pymysql

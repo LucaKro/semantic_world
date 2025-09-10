@@ -698,7 +698,7 @@ class World:
         ]:
             if not handle_duplicates:
                 raise AttributeError(
-                    "A kinematic structure entity with the name already exists in the world."
+                    f"A kinematic structure entity with the name {kinematic_structure_entity.name} already exists in the world."
                 )
             kinematic_structure_entity.name.name = (
                 kinematic_structure_entity.name.name

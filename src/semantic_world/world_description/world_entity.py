@@ -431,7 +431,7 @@ class Region(KinematicStructureEntity):
         points = np.asarray([point.to_np()[:3] for point in points_3d], dtype=float)
         points = np.unique(points, axis=0)
         assert (
-            len(points) > 4
+            len(points) >= 3
         ), "At least 4 unique points are required to define a 3D region."
 
         centered_points = points - points.mean(axis=0, keepdims=True)

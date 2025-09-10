@@ -743,6 +743,17 @@ class BoundingBox:
 
         return world_bb
 
+    def __eq__(self, other: BoundingBox) -> bool:
+        return (
+            np.isclose(self.min_x, other.min_x)
+            and np.isclose(self.min_y, other.min_y)
+            and np.isclose(self.min_z, other.min_z)
+            and np.isclose(self.max_x, other.max_x)
+            and np.isclose(self.max_y, other.max_y)
+            and np.isclose(self.max_z, other.max_z)
+            and self.origin == other.origin
+        )
+
 
 @dataclass
 class BoundingBoxCollection:

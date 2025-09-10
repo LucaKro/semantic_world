@@ -7,7 +7,11 @@ from typing import Dict, Tuple, Union, Set
 
 import numpy as np
 from entity_query_language import the, entity, let
-from ormatic.eql_interface import eql_to_sql
+
+try:
+    from ormatic.eql_interface import eql_to_sql
+except:
+    ...
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
@@ -494,6 +498,91 @@ class ProcTHORParser:
     SQLAlchemy session to interact with the database to import objects.
     """
 
+    def parse(self) -> World:
+        """
+        Parses a JSON file from procthor into a world.
+        Rooms are represented as Regions
+        Walls and doors are constructed from the supplied polygons
+        Objects are imported from the database
+        """
+        with open(self.file_path) as f:
+            house = json.load(f)
+        house_name = self.file_path.split("/")[-1].split(".")[0]
+
+        world = World(name=house_name)
+        with world.modify_world():
+            world_root = Body(name=PrefixedName(house_name))
+            world.add_kinematic_structure_entity(world_root, handle_duplicates=True)
+
+            self.import_rooms(world, house["rooms"])
+
+            if self.session is not None:
+                self.import_objects(world, house["objects"])
+            else:
+                logging.warning("No database session provided, skipping object import.")
+
+            self.import_walls_and_doors(world, house["walls"], house["doors"])
+
+            return world
+
+    @staticmethod
+    def import_rooms(world: World, rooms: List[Dict]):
+        """
+        Imports rooms from the Procthor JSON file into ProcthorRoom instances.
+
+        :param world: The World instance to which the rooms will be added.
+        :param rooms: List of room dictionaries from the Procthor JSON file.
+        """
+        for room in rooms:
+            procthor_room = ProcthorRoom(room_dict=room)
+            room_world = procthor_room.get_world()
+            room_connection = FixedConnection(
+                parent=world.root,
+                child=room_world.root,
+                origin_expression=procthor_room.world_T_room,
+            )
+            world.merge_world(room_world, room_connection)
+
+    def import_objects(self, world: World, objects: List[Dict]):
+        """
+        Imports objects from the Procthor JSON file into ProcthorObject instances.
+
+        :param world: The World instance to which the objects will be added.
+        :param objects: List of object dictionaries from the Procthor JSON file.
+        """
+        for obj in objects:
+            procthor_object = ProcthorObject(object_dict=obj, session=self.session)
+            obj_world = procthor_object.get_world()
+            if obj_world is None:
+                continue
+            obj_connection = FixedConnection(
+                parent=world.root,
+                child=obj_world.root,
+                origin_expression=procthor_object.world_T_obj,
+            )
+            world.merge_world(obj_world, obj_connection, handle_duplicates=True)
+
+    def import_walls_and_doors(
+        self, world: World, walls: List[Dict], doors: List[Dict]
+    ):
+        """
+        Imports walls from the Procthor JSON file into ProcthorWall instances.
+
+        :param world: The World instance to which the walls will be added.
+        :param walls: List of wall dictionaries from the Procthor JSON file.
+        :param doors: List of door dictionaries from the Procthor JSON file.
+        """
+        procthor_walls = self._build_procthor_walls(walls, doors)
+
+        for procthor_wall in procthor_walls:
+            wall_world = procthor_wall.get_world()
+            wall_connection = FixedConnection(
+                parent=world.root,
+                child=wall_world.root,
+                origin_expression=procthor_wall.world_T_wall,
+            )
+            world.merge_world(wall_world, wall_connection)
+
     @staticmethod
     def _build_procthor_wall_from_polygon(
         walls: List[Dict],
@@ -582,91 +671,6 @@ class ProcTHORParser:
         procthor_walls.extend(paired_walls)
 
         return procthor_walls
-
-    @staticmethod
-    def import_rooms(world: World, rooms: List[Dict]):
-        """
-        Imports rooms from the Procthor JSON file into ProcthorRoom instances.
-
-        :param world: The World instance to which the rooms will be added.
-        :param rooms: List of room dictionaries from the Procthor JSON file.
-        """
-        for room in rooms:
-            procthor_room = ProcthorRoom(room_dict=room)
-            room_world = procthor_room.get_world()
-            room_connection = FixedConnection(
-                parent=world.root,
-                child=room_world.root,
-                origin_expression=procthor_room.world_T_room,
-            )
-            world.merge_world(room_world, room_connection)
-
-    def import_objects(self, world: World, objects: List[Dict]):
-        """
-        Imports objects from the Procthor JSON file into ProcthorObject instances.
-
-        :param world: The World instance to which the objects will be added.
-        :param objects: List of object dictionaries from the Procthor JSON file.
-        """
-        for obj in objects:
-            procthor_object = ProcthorObject(object_dict=obj, session=self.session)
-            obj_world = procthor_object.get_world()
-            if obj_world is None:
-                continue
-            obj_connection = FixedConnection(
-                parent=world.root,
-                child=obj_world.root,
-                origin_expression=procthor_object.world_T_obj,
-            )
-            world.merge_world(obj_world, obj_connection, handle_duplicates=True)
-
-    def import_walls_and_doors(
-        self, world: World, walls: List[Dict], doors: List[Dict]
-    ):
-        """
-        Imports walls from the Procthor JSON file into ProcthorWall instances.
-
-        :param world: The World instance to which the walls will be added.
-        :param walls: List of wall dictionaries from the Procthor JSON file.
-        :param doors: List of door dictionaries from the Procthor JSON file.
-        """
-        procthor_walls = self._build_procthor_walls(walls, doors)
-
-        for procthor_wall in procthor_walls:
-            wall_world = procthor_wall.get_world()
-            wall_connection = FixedConnection(
-                parent=world.root,
-                child=wall_world.root,
-                origin_expression=procthor_wall.world_T_wall,
-            )
-            world.merge_world(wall_world, wall_connection)
-
-    def parse(self) -> World:
-        """
-        Parses a JSON file from procthor into a world.
-        Rooms are represented as Regions
-        Walls and doors are constructed from the supplied polygons
-        Objects are imported from the database
-        """
-        with open(self.file_path) as f:
-            house = json.load(f)
-        house_name = self.file_path.split("/")[-1].split(".")[0]
-
-        world = World(name=house_name)
-        with world.modify_world():
-            world_root = Body(name=PrefixedName(house_name))
-            world.add_kinematic_structure_entity(world_root, handle_duplicates=True)
-
-            self.import_rooms(world, house["rooms"])
-
-            if self.session is not None:
-                self.import_objects(world, house["objects"])
-            else:
-                logging.warning("No database session provided, skipping object import.")
-
-            self.import_walls_and_doors(world, house["walls"], house["doors"])
-
-            return world
 
 
 def get_world_by_asset_id(session: Session, asset_id: str) -> Optional[World]:
