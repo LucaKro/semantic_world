@@ -1,4 +1,7 @@
 import os
+import time
+
+import rclpy
 from typing_extensions import List
 
 import numpy as np
@@ -6,6 +9,7 @@ import pytest
 from rustworkx import NoPathFound
 
 from semantic_world.adapters.urdf import URDFParser
+from semantic_world.adapters.viz_marker import VizMarkerPublisher
 from semantic_world.world_description.connections import (
     OmniDrive,
     PrismaticConnection,
@@ -352,3 +356,10 @@ def test_tracy_view(tracy_world):
     tracy = Tracy.from_world(tracy_world)
 
     tracy_world._notify_model_change()
+
+    rclpy.init()
+    node = rclpy.create_node("semantic_world")
+
+    viz = VizMarkerPublisher(world=tracy_world, node=node)
+    time.sleep(1000)
+    ...

@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import numpy as np
 import pytest
 
@@ -15,7 +17,11 @@ from semantic_world.exceptions import (
 from semantic_world.datastructures.prefixed_name import PrefixedName
 from semantic_world.spatial_types.derivatives import Derivatives
 from semantic_world.spatial_types.math import rotation_matrix_from_rpy
-from semantic_world.spatial_types.spatial_types import TransformationMatrix
+from semantic_world.spatial_types.spatial_types import (
+    TransformationMatrix,
+    Point3,
+    RotationMatrix,
+)
 from semantic_world.spatial_types.symbol_manager import symbol_manager
 from semantic_world.testing import world_setup, pr2_world
 from semantic_world.world_description.world_entity import View, Body
@@ -521,6 +527,69 @@ def test_remove_connection(world_setup):
     with pytest.raises(ValueError):
         # if you remove a connection, the child must be connected some other way or deleted
         world.remove_connection(world.get_connection(r1, r2))
+
+
+def test_copy_world(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    world_copy = deepcopy(world)
+    assert l2 not in world_copy.bodies
+    assert bf.parent_connection not in world_copy.connections
+    bf.parent_connection.origin = np.array(
+        [[1, 0, 0, 1.5], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+    )
+    assert (
+        float(
+            world_copy.get_kinematic_structure_entity_by_name("bf").global_pose.to_np()[
+                0, 3
+            ]
+        )
+        == 0.0
+    )
+    assert float(bf.global_pose.to_np()[0, 3]) == 1.5
+
+
+def test_copy_world_state(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    connection: PrismaticConnection = world.get_connection(r1, r2)
+    world.state[connection.dof.name].position = 1.0
+    world.notify_state_change()
+    world_copy = deepcopy(world)
+
+    assert world.get_connection(r1, r2).position == 1.0
+    assert world_copy.get_connection(r1, r2).position == 1.0
+
+
+def test_match_index(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    world_copy = deepcopy(world)
+    for body in world.bodies:
+        new_body = world_copy.get_kinematic_structure_entity_by_name(body.name)
+        assert body.index == new_body.index
+
+
+def test_world_different_entities(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    world_copy = deepcopy(world)
+    for body in world_copy.bodies:
+        assert body not in world.bodies
+    for connection in world_copy.connections:
+        assert connection not in world.connections
+    for dof in world_copy.state:
+        assert dof not in world.degrees_of_freedom
+
+
+def test_copy_pr2(pr2_world):
+    pr2_world.state[
+        pr2_world.get_degree_of_freedom_by_name("torso_lift_joint").name
+    ].position = 0.3
+    pr2_world.notify_state_change()
+    pr2_copy = deepcopy(pr2_world)
+    assert pr2_world.get_kinematic_structure_entity_by_name(
+        "head_tilt_link"
+    ).global_pose.to_np()[2, 3] == pytest.approx(1.472, abs=1e-3)
+    assert pr2_copy.get_kinematic_structure_entity_by_name(
+        "head_tilt_link"
+    ).global_pose.to_np()[2, 3] == pytest.approx(1.472, abs=1e-3)
 
 
 def test_add_entity_with_duplicate_name(world_setup):

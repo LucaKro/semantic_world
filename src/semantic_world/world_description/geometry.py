@@ -532,6 +532,13 @@ class BoundingBox:
             }
         )
 
+    @property
+    def dimensions(self) -> List[float]:
+        """
+        :return: The dimensions of the bounding box as a list [width, height, depth].
+        """
+        return [self.width, self.height, self.depth]
+
     def bloat(
         self, x_amount: float = 0.0, y_amount: float = 0, z_amount: float = 0
     ) -> BoundingBox:

@@ -72,9 +72,13 @@ class VizMarkerPublisher:
         Constantly publishes the Marker Array. To the given topic name at a fixed rate.
         """
         while not self.kill_event.is_set():
+            while self.world.world_is_being_modified:
+                time.sleep(self.interval)
             marker_array = self._make_marker_array()
             self.pub.publish(marker_array)
             time.sleep(self.interval)
+            while self.world.world_is_being_modified:
+                time.sleep(self.interval)
 
     def _make_marker_array(self) -> MarkerArray:
         """
