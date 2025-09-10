@@ -8,10 +8,7 @@ from typing import Dict, Tuple, Union, Set
 import numpy as np
 from entity_query_language import the, entity, let
 
-try:
-    from ormatic.eql_interface import eql_to_sql
-except:
-    ...
+from ormatic.eql_interface import eql_to_sql
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
@@ -271,16 +268,16 @@ class ProcthorWall:
         """
         Computes the wall's world position matrix from the wall's x and z coordinates.
         Calculates the yaw angle using the atan2 function based on the wall's width and depth.
+        The wall is artificially set to height=0, because
+        1. as of now, procthor house floors have the same floor value at 0
+        2. Since doors origins are in 3d center, positioning the door correctly at the floor given potentially varying
+           wall heights is unnecessarily complex given the assumption stated in 1.
         """
 
         yaw = math.atan2(self.delta_z, -self.delta_x)
         x_center = (self.x_coords[0] + self.x_coords[-1]) * 0.5
         z_center = (self.z_coords[0] + self.z_coords[-1]) * 0.5
 
-        # The wall is artificially set to height=0 here, because
-        # 1. as of now, procthor house floors have the same floor value at 0
-        # 2. Since doors origins are in 3d center, positioning the door correctly at the floor given potentially varying
-        #    wall heights is unnecessarily complex given the assumption stated in 1.
         world_T_wall = TransformationMatrix.from_xyz_rpy(
             x_center, 0, z_center, 0.0, yaw, 0
         )
@@ -501,7 +498,7 @@ class ProcTHORParser:
     def parse(self) -> World:
         """
         Parses a JSON file from procthor into a world.
-        Rooms are represented as Regions
+        Room floor areas are constructed from the supplied polygons
         Walls and doors are constructed from the supplied polygons
         Objects are imported from the database
         """

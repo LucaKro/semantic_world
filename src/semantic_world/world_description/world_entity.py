@@ -421,10 +421,14 @@ class Region(KinematicStructureEntity):
     ) -> Self:
         """
         Constructs a Region from a list of 3D points by creating a convex hull around them.
+        The points are analyzed to determine if they are approximately planar. If they are,
+        a minimum thickness is added to ensure the region has a non-zero volume.
 
         :param name: Prefixed name for the region.
         :param points_3d: List of 3D points.
         :param reference_frame: Optional reference frame.
+        :param minimum_thickness: Minimum thickness to add if points are near-planar.
+        :param sv_ratio_tol: Tolerance for determining planarity based on singular value ratio.
 
         :return: Region object.
         """
@@ -437,6 +441,10 @@ class Region(KinematicStructureEntity):
         centered_points = points - points.mean(axis=0, keepdims=True)
         assert np.any(centered_points), "Points must not be all identical."
 
+        # We compute the principal axes of the point cloud using SVD.
+        # This allows us to reason about the geometric thickness of our point cloud.
+        # The axis with the smallest variance, located at the last index if our `principal_axis` is our `normal`
+        # indicating the direction of the region's thickness.
         _, variance, principal_axis = np.linalg.svd(
             centered_points, full_matrices=False
         )
@@ -445,17 +453,18 @@ class Region(KinematicStructureEntity):
             smallest_variance_axis
         )
 
-        # Geometric thickness along the “smallest variance” axis
-        thickness_in_normal_direction = np.ptp(
-            centered_points @ unit_vector_normal
-        )  # max - min along smallest_variance_axis
-
+        # We compute the thickness, peak-to-peak (max - min), along the normal direction, to get the thickness of
+        # the region.
+        thickness_in_normal_direction = np.ptp(centered_points @ unit_vector_normal)
         is_near_planar = variance[0] > 0 and variance[-1] / variance[0] < sv_ratio_tol
         thickness_padding = (
             minimum_thickness / 2
             if thickness_in_normal_direction < minimum_thickness or is_near_planar
             else 0.0
         )
+
+        # We do not provide any 2d shapes, since they would be very weird to handle with raytracing etc.
+        # Thus we decided that in near-planar cases we add a minimum thickness to ensure we get a 3d shape.
         if thickness_padding > 0:
             P_aug = np.vstack(
                 [
