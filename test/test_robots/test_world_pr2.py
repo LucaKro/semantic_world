@@ -16,11 +16,11 @@ from semantic_world.spatial_computations.ik_solver import (
     UnreachableException,
 )
 from semantic_world.datastructures.prefixed_name import PrefixedName
-from semantic_world.robots import PR2, KinematicChain
+from semantic_world.robots import PR2, KinematicChain, Tracy
 from semantic_world.spatial_types.derivatives import Derivatives
 from semantic_world.spatial_types.symbol_manager import symbol_manager
 from semantic_world.world import World
-from semantic_world.testing import pr2_world
+from semantic_world.testing import pr2_world, tracy_world
 
 
 def test_compute_chain_of_bodies_pr2(pr2_world):
@@ -346,3 +346,9 @@ def test_load_collision_config_srdf(pr2_world):
         == 20
     )
     assert len(pr2_world.disabled_collision_pairs) == 1128
+
+
+def test_tracy_view(tracy_world):
+    tracy = Tracy.from_world(tracy_world)
+
+    tracy_world._notify_model_change()

@@ -641,3 +641,173 @@ class PR2(AbstractRobot):
         world.add_view(robot, exists_ok=True)
 
         return robot
+
+
+class Tracy(AbstractRobot):
+
+    left_arm: KinematicChain = field(default=None)
+    right_arm: KinematicChain = field(default=None)
+
+    def __hash__(self):
+        return hash(self.name)
+
+    def _add_arm(self, arm: KinematicChain, arm_side: str):
+        """
+        Adds a kinematic chain to the PR2 robot's collection of kinematic chains.
+        If the kinematic chain is an arm, it will be added to the left or right arm accordingly.
+
+        :param arm: The kinematic chain to add to the PR2 robot.
+        """
+        if arm.manipulator is None:
+            raise ValueError(f"Arm kinematic chain {arm.name} must have a manipulator.")
+
+        if arm_side == "left":
+            self.left_arm = arm
+        elif arm_side == "right":
+            self.right_arm = arm
+        else:
+            raise ValueError(
+                f"Invalid arm side: {arm_side}. Must be 'left' or 'right'."
+            )
+
+        super().add_kinematic_chain(arm)
+
+    def add_left_arm(self, kinematic_chain: KinematicChain):
+        """
+        Adds a left arm kinematic chain to the PR2 robot.
+
+        :param kinematic_chain: The kinematic chain representing the left arm.
+        """
+        self._add_arm(kinematic_chain, "left")
+
+    def add_right_arm(self, kinematic_chain: KinematicChain):
+        """
+        Adds a right arm kinematic chain to the PR2 robot.
+
+        :param kinematic_chain: The kinematic chain representing the right arm.
+        """
+        self._add_arm(kinematic_chain, "right")
+
+    @classmethod
+    def from_world(cls, world: World) -> Self:
+        """
+        Creates a Tracy robot view from the given world.
+
+        :param world: The world from which to create the robot view.
+
+        :return: A Tracy robot view.
+        """
+
+        robot = cls(
+            name=PrefixedName(name="tracy", prefix=world.name),
+            root=world.get_kinematic_structure_entity_by_name("table"),
+            _world=world,
+        )
+
+        # Create left arm
+        left_gripper_thumb = Finger(
+            name=PrefixedName("left_gripper_thumb", prefix=robot.name.name),
+            root=world.get_kinematic_structure_entity_by_name(
+                "left_robotiq_85_left_knuckle_link"
+            ),
+            tip=world.get_kinematic_structure_entity_by_name(
+                "left_robotiq_85_left_finger_tip_link"
+            ),
+            _world=world,
+        )
+
+        left_gripper_finger = Finger(
+            name=PrefixedName("left_gripper_finger", prefix=robot.name.name),
+            root=world.get_kinematic_structure_entity_by_name(
+                "left_robotiq_85_right_knuckle_link"
+            ),
+            tip=world.get_kinematic_structure_entity_by_name(
+                "left_robotiq_85_right_finger_tip_link"
+            ),
+            _world=world,
+        )
+
+        left_gripper = ParallelGripper(
+            name=PrefixedName("left_gripper", prefix=robot.name.name),
+            root=world.get_kinematic_structure_entity_by_name(
+                "left_robotiq_85_base_link"
+            ),
+            tool_frame=world.get_kinematic_structure_entity_by_name(
+                "l_gripper_tool_frame"
+            ),
+            thumb=left_gripper_thumb,
+            finger=left_gripper_finger,
+            _world=world,
+        )
+        left_arm = Arm(
+            name=PrefixedName("left_arm", prefix=robot.name.name),
+            root=world.get_kinematic_structure_entity_by_name("table"),
+            tip=world.get_kinematic_structure_entity_by_name("left_wrist_3_link"),
+            manipulator=left_gripper,
+            _world=world,
+        )
+
+        robot.add_left_arm(left_arm)
+
+        right_gripper_thumb = Finger(
+            name=PrefixedName("right_gripper_thumb", prefix=robot.name.name),
+            root=world.get_kinematic_structure_entity_by_name(
+                "right_robotiq_85_left_knuckle_link"
+            ),
+            tip=world.get_kinematic_structure_entity_by_name(
+                "right_robotiq_85_left_finger_tip_link"
+            ),
+            _world=world,
+        )
+        right_gripper_finger = Finger(
+            name=PrefixedName("right_gripper_finger", prefix=robot.name.name),
+            root=world.get_kinematic_structure_entity_by_name(
+                "right_robotiq_85_right_knuckle_link"
+            ),
+            tip=world.get_kinematic_structure_entity_by_name(
+                "right_robotiq_85_right_finger_tip_link"
+            ),
+            _world=world,
+        )
+        right_gripper = ParallelGripper(
+            name=PrefixedName("right_gripper", prefix=robot.name.name),
+            root=world.get_kinematic_structure_entity_by_name(
+                "right_robotiq_85_base_link"
+            ),
+            tool_frame=world.get_kinematic_structure_entity_by_name(
+                "r_gripper_tool_frame"
+            ),
+            thumb=right_gripper_thumb,
+            finger=right_gripper_finger,
+            _world=world,
+        )
+        right_arm = Arm(
+            name=PrefixedName("right_arm", prefix=robot.name.name),
+            root=world.get_kinematic_structure_entity_by_name("table"),
+            tip=world.get_kinematic_structure_entity_by_name("right_wrist_3_link"),
+            manipulator=right_gripper,
+            _world=world,
+        )
+        robot.add_right_arm(right_arm)
+
+        camera = Camera(
+            name=PrefixedName("camera", prefix=robot.name.name),
+            root=world.get_kinematic_structure_entity_by_name("camera_link"),
+            forward_facing_axis=Vector3(0, 0, 1),
+            field_of_view=FieldOfView(horizontal_angle=1.047, vertical_angle=0.785),
+            minimal_height=0.8,
+            maximal_height=1.7,
+            _world=world,
+        )
+
+        neck = Neck(
+            name=PrefixedName("neck", prefix=robot.name.name),
+            sensors={camera},
+            root=world.get_kinematic_structure_entity_by_name("camera_pole"),
+            tip=world.get_kinematic_structure_entity_by_name("camera_link"),
+            _world=world,
+        )
+
+        robot.add_kinematic_chain(neck)
+        world.add_view(robot, exists_ok=True)
+        return robot
