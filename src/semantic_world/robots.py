@@ -699,6 +699,8 @@ class Tracy(AbstractRobot):
     def __hash__(self):
         return hash(self.name)
 
+    def load_srdf(self): ...
+
     def _add_arm(self, arm: KinematicChain, arm_side: str):
         """
         Adds a kinematic chain to the PR2 robot's collection of kinematic chains.

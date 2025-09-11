@@ -1,16 +1,15 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 import fbxloader
 import numpy as np
 import trimesh
 from fbxloader import Object3D, Mesh as FBXMesh, Scene
-
 from semantic_world.adapters.mesh import MeshParser
 from semantic_world.datastructures.prefixed_name import PrefixedName
-from semantic_world.spatial_types import TransformationMatrix, Point3, RotationMatrix
+from semantic_world.spatial_types import TransformationMatrix
 from semantic_world.world import World
 from semantic_world.world_description.connections import FixedConnection
 from semantic_world.world_description.geometry import TriangleMesh
@@ -146,22 +145,22 @@ class FBXParser(MeshParser):
         semantic_world_T_fbx = global_settings.get_semantic_world_T_fbx()
 
         world = World()
+        world_root = Body(name=PrefixedName("world_root"))
+        with world.modify_world():
+            world.add_body(world_root)
 
         with world.modify_world():
-            for obj_id, obj in fbx.objects.items():
+            for obj in fbx.objects.values():
                 # Create a body for each object in the FBX file
                 if type(obj) is Object3D:
-                    name = fbx.fbxtree["Objects"]["Model"][obj_id]["attrName"].split(
+                    name = fbx.fbxtree["Objects"]["Model"][obj.id]["attrName"].split(
                         "\x00"
                     )[0]
                     meshes = []
                     for o in obj.children:
                         if isinstance(o, FBXMesh):
-                            transformed_vertices = (
-                                self.transform_vertices(
-                                    o.vertices, semantic_world_T_fbx
-                                )
-                                / 100
+                            transformed_vertices = self.transform_vertices(
+                                o.vertices, semantic_world_T_fbx
                             )
 
                             t_mesh = TriangleMesh(
@@ -173,24 +172,32 @@ class FBXParser(MeshParser):
 
                             meshes.append(t_mesh)
                     body = Body(
-                        name=PrefixedName(name), collision=meshes, visual=meshes
+                        name=PrefixedName(name, prefix=obj.id),
+                        collision=meshes,
+                        visual=meshes,
                     )
                     world.add_body(body)
 
             for obj in fbx.objects.values():
                 if type(obj) is Object3D:
-                    name = fbx.fbxtree["Objects"]["Model"][obj.id]["attrName"].split(
-                        "\x00"
-                    )[0]
+                    name = PrefixedName(
+                        name=fbx.fbxtree["Objects"]["Model"][obj.id]["attrName"].split(
+                            "\x00"
+                        )[0],
+                        prefix=obj.id,
+                    )
                     parent_name = (
-                        fbx.fbxtree["Objects"]["Model"][obj.parent.id][
-                            "attrName"
-                        ].split("\x00")[0]
+                        PrefixedName(
+                            name=fbx.fbxtree["Objects"]["Model"][obj.parent.id][
+                                "attrName"
+                            ].split("\x00")[0],
+                            prefix=obj.parent.id,
+                        )
                         if type(obj.parent) is not Scene
                         else None
                     )
                     if not parent_name:
-                        continue
+                        parent_name = "world_root"
 
                     obj_body = world.get_body_by_name(name)
                     parent_body = world.get_body_by_name(parent_name)

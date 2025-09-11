@@ -5,6 +5,7 @@ import time
 import numpy as np
 
 from .. import logger
+from ..spatial_types.spatial_types import RotationMatrix
 
 try:
     from builtin_interfaces.msg import Duration
@@ -16,8 +17,6 @@ except ImportError as e:
     logger.warning(
         f"Could not import ros messages, viz marker will not be available: {e}"
     )
-
-from scipy.spatial.transform import Rotation
 
 from ..world_description.geometry import (
     FileMesh,
@@ -174,7 +173,7 @@ class VizMarkerPublisher:
             **dict(
                 zip(
                     ["x", "y", "z", "w"],
-                    Rotation.from_matrix(transform[:3, :3]).as_quat(),
+                    RotationMatrix(transform).to_quaternion().to_np(),
                 )
             )
         )

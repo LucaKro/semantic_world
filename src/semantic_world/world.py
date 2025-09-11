@@ -511,7 +511,9 @@ class World:
         """
         if self.empty:
             return True
-        assert len(self.kinematic_structure_entities) == (len(self.connections) + 1)
+        assert len(self.kinematic_structure_entities) == (
+            len(self.connections) + 1
+        ), f"The world must be a tree. It has {len(self.kinematic_structure_entities)} nodes and {len(self.connections)} connections."
         assert rx.is_weakly_connected(self.kinematic_structure)
         actual_dofs = set()
         for connection in self.connections:
