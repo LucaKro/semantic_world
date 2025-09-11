@@ -5,12 +5,14 @@ from dataclasses import dataclass
 from typing import List, Callable
 
 import numpy as np
+import trimesh
+from tqdm import tqdm
 
 from ..spatial_types import Point3
 from ..spatial_types.spatial_types import TransformationMatrix
 from ..views.factories import ViewFactory
 from ..world import World
-from ..world_description.geometry import TriangleMesh, FileMesh
+from ..world_description.geometry import TriangleMesh, FileMesh, Mesh
 from ..world_description.world_entity import Body
 
 
@@ -158,4 +160,98 @@ class BodyFactoryReplace(Step):
             parent_connection.child = new_world.root
             world.merge_world(new_world, parent_connection)
 
+        return world
+
+@dataclass
+class FillCollisionWithVisual(Step):
+    """
+    Fills the collision meshes of bodies in the world with their visual meshes if they have no collision meshes.
+    """
+
+    def _apply(self, world: World) -> World:
+        for body in world.bodies:
+            if len(body.collision) == 0 and len(body.visual) > 0:
+                for vis in body.visual:
+                    if isinstance(vis, Mesh):
+                        body.collision.append(TriangleMesh(mesh=vis.mesh, scale=vis.scale, origin=vis.origin))
+        return world
+
+@dataclass
+class FilterOutBodiesByExactArea(Step):
+    """
+    Filters out bodies from the world whose total mesh area (collision or visual) matches a specified area.
+    """
+    area: float
+    """
+    The exact area to filter out bodies by.
+    """
+
+    def _apply(self, world: World) -> World:
+        def body_area(body: Body) -> float:
+            total_area = 0.0
+            if len(body.collision) > 0:
+                for coll in body.collision:
+                    if isinstance(coll, Mesh):
+                        mesh: trimesh.Trimesh = coll.mesh
+                        if mesh.vertices.shape[0] > 0 and mesh.faces.shape[0] > 0:
+                            total_area += mesh.area
+            elif len(body.visual) > 0:
+                for vis in body.visual:
+                    if isinstance(vis, Mesh):
+                        mesh: trimesh.Trimesh = vis.mesh
+                        if mesh.vertices.shape[0] > 0 and mesh.faces.shape[0] > 0:
+                            total_area += mesh.area
+            return total_area
+        bodies = list(world.bodies)
+
+        for body in tqdm(bodies, desc="Filtering bodies by exact area"):
+            if np.isclose(body_area(body), self.area):
+                world.remove_kinematic_structure_entity(body)
+        return world
+
+@dataclass
+class FilterOutLeafBodiesByMinArea(Step):
+    """
+    Filters out bodies from the world whose total mesh area (collision or visual) is below a specified minimum area.
+    """
+    min_area: float
+    """
+    The minimum area threshold to filter out bodies by.
+    """
+
+    def _apply(self, world: World) -> World:
+        def body_area(body: Body) -> float:
+            total_area = 0.0
+            if len(body.collision) > 0:
+                for coll in body.collision:
+                    if isinstance(coll, Mesh):
+                        mesh: trimesh.Trimesh = coll.mesh
+                        total_area += mesh.area
+            elif len(body.visual) > 0:
+                for vis in body.visual:
+                    if isinstance(vis, Mesh):
+                        mesh: trimesh.Trimesh = vis.mesh
+                        total_area += mesh.area
+            return total_area
+        bodies = list(world.bodies)
+
+        for body in tqdm(bodies, desc="Filtering bodies by min area"):
+            if len(world.compute_child_kinematic_structure_entities(body)) > 0:
+                continue
+            if body_area(body) < self.min_area:
+                world.remove_kinematic_structure_entity(body)
+        return world
+
+@dataclass
+class RemoveVisualsIfCondition(Step):
+    """
+    Removes visual meshes from bodies in the world that match a given condition.
+    """
+
+    condition: Callable[[Body], bool]
+
+    def _apply(self, world: World) -> World:
+        for body in world.bodies:
+            if self.condition(body):
+                body.visual.clear()
         return world
