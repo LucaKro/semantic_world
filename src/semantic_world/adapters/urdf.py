@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from typing_extensions import Optional, Tuple, Union, List, Dict
 from urdf_parser_py import urdf as urdfpy
@@ -125,6 +125,11 @@ class URDFParser:
      `ROS_PACKAGE_PATH` to a colon-separated list of package paths, which will be used as the package resolver.
     """
 
+    file_name : Optional[str] = field(default=None)
+    """
+    The file name of the URDF file if it was loaded from a file.
+    """
+
     def __post_init__(self):
         self.urdf = hacky_urdf_parser_fix(self.urdf)
         self.parsed = urdfpy.URDF.from_xml_string(self.urdf)
@@ -145,7 +150,9 @@ class URDFParser:
                 # Since parsing URDF causes a lot of warning messages which can't be deactivated, we suppress them
                 with suppress_stdout_stderr():
                     urdf = file.read()
-        return URDFParser(urdf=urdf, prefix=prefix)
+        parser = URDFParser(urdf=urdf, prefix=prefix)
+        parser.file_name = file_path
+        return parser
 
     def parse(self) -> World:
         prefix = self.parsed.name
@@ -408,5 +415,6 @@ class URDFParser:
                     )
             file_path = file_path.replace("package://" + package_name, package_path)
         if "file://" in file_path:
-            file_path = file_path.replace("file://", "./")
+            urdf_path_dir = os.path.dirname(self.file_name)
+            file_path = file_path.replace("file://", urdf_path_dir + "/")
         return file_path
