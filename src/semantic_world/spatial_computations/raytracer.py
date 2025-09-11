@@ -61,10 +61,10 @@ class RayTracer:
         Updates the ray tracer scene with the current state of the world.
         This method should be called whenever the world changes to ensure the ray tracer has the latest information.
         """
-        if self._last_world_model is not self.world._model_version:
+        if self._last_world_model != self.world._model_version:
             self.add_missing_bodies()
             self._last_world_model = self.world._model_version
-        if self._last_world_state is not self.world._state_version:
+        if self._last_world_state != self.world._state_version:
             self.update_transforms()
             self._last_world_state = self.world._state_version
 
@@ -107,15 +107,16 @@ class RayTracer:
                 )
                 self.scene.graph[body.name.name + f"_collision_{i}"] = transform
 
-    def create_segmentation_mask(self, camera_pose: SpatialType,
-                                 resolution: int = 512) -> np.ndarray:
+    def create_segmentation_mask(
+        self, camera_pose: SpatialType, resolution: int = 512
+    ) -> np.ndarray:
         """
-                Creates a segmentation mask for the ray tracer scene from the camera position to the target position. Each pixel
-                in the mask corresponds to the index of a  body in the scene or -1 if no body is hit at that pixel.
-        <
-                :param camera_pose: The position of the camera.
-                :param resolution: The resolution of the segmentation mask.
-                :return: A segmentation mask as a numpy array.
+        Creates a segmentation mask for the ray tracer scene from the camera position to the target position. Each pixel
+        in the mask corresponds to the index of a body in the scene or -1 if no body is hit at that pixel.
+
+        :param camera_pose: The position of the camera.
+        :param resolution: The resolution of the segmentation mask.
+        :return: A segmentation mask as a numpy array.
         """
         self.update_scene()
         ray_origins, ray_directions, pixels = self.create_camera_rays(
@@ -133,7 +134,7 @@ class RayTracer:
 
         # create a numpy array we can turn into an image
         # doing it with uint8 creates an `L` mode greyscale image
-        a = np.zeros(self.scene.camera.resolution, dtype=np.int8) - 1
+        a = np.zeros(self.scene.camera.resolution, dtype=np.int32) - 1
 
         # assign bodies to correct pixel locations
         a[pixel_ray[:, 0], pixel_ray[:, 1]] = bodies

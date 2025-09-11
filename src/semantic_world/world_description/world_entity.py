@@ -17,6 +17,8 @@ from trimesh import Trimesh
 from trimesh.proximity import closest_point, nearby_faces
 from trimesh.sample import sample_surface
 from trimesh.util import concatenate
+
+import trimesh.boolean
 from typing_extensions import (
     Deque,
     Type,
@@ -145,6 +147,18 @@ class KinematicStructureEntity(WorldEntity):
         :returns: A collection of bounding boxes in world-space coordinates.
         """
         pass
+
+    def as_bounding_box_collection_in_frame(
+        self, reference_frame: KinematicStructureEntity
+    ) -> BoundingBoxCollection:
+        """
+        Provides the bounding box collection for this entity in the given reference frame.
+        :param reference_frame: The reference frame to express the bounding boxes in.
+        :returns: A collection of bounding boxes in world-space coordinates.
+        """
+        return self.as_bounding_box_collection_at_origin(
+            TransformationMatrix(reference_frame=reference_frame)
+        )
 
 
 @dataclass
@@ -485,6 +499,20 @@ class Region(KinematicStructureEntity):
         )
         return cls(name=name, area=[area_mesh])
 
+    @cached_property
+    def combined_area_mesh(self) -> Trimesh:
+        """
+        Combines all collision meshes into a single mesh, applying the respective transformations.
+        :return: A single Trimesh representing the combined collision geometry.
+        """
+        transformed_meshes = []
+        for shape in self.area:
+            transform = shape.origin.to_np()
+            mesh = shape.mesh.copy()
+            mesh.apply_transform(transform)
+            transformed_meshes.append(mesh)
+        return trimesh.boolean.union(transformed_meshes)
+
 
 GenericKinematicStructureEntity = TypeVar(
     "GenericKinematicStructureEntity", bound=KinematicStructureEntity
@@ -593,7 +621,7 @@ class RootedView(View):
     Represents a view that is rooted in a specific KinematicStructureEntity.
     """
 
-    root: KinematicStructureEntity = field(default=None)
+    root: Body = field(default=None)
 
     @property
     def connections(self) -> List[Connection]:

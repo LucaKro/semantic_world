@@ -217,7 +217,9 @@ def test_compute_ik(world_setup):
             [0.0, 0.0, 0.0, 1.0],
         ]
     )
-    joint_state = world.compute_inverse_kinematics(l2, r2, target)
+    joint_state = world.compute_inverse_kinematics(
+        l2, r2, TransformationMatrix(target, reference_frame=l2)
+    )
     for joint, state in joint_state.items():
         world.state[joint.name].position = state
     world.notify_state_change()

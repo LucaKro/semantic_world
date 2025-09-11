@@ -56,7 +56,7 @@ class KinematicChain(RobotView, ABC):
     position of the manipulator or sensors in the kinematic chain
     """
 
-    tip: KinematicStructureEntity = field(default=None)
+    tip: Body = field(default=None)
     """
     The tip body of the kinematic chain, which is the last body in the chain.
     """
@@ -160,7 +160,7 @@ class Manipulator(RobotView, ABC):
     Abstract base class of robot manipulators. Always has a tool frame.
     """
 
-    tool_frame: KinematicStructureEntity = field(default=None)
+    tool_frame: Body = field(default=None)
 
     front_facing_orientation: Quaternion = field(default=None)
     """

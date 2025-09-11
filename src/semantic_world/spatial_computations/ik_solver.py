@@ -163,9 +163,7 @@ class InverseKinematicsSolver:
         :param rotation_velocity: Maximum rotation velocity
         :return: Dictionary mapping DOF names to their computed positions
         """
-        if target.reference_frame != root:
-            target = self.world.transform(target, root)
-
+        target = root._world.transform(target, root)
         qp_problem = QPProblem(
             world=self.world,
             root=root,
