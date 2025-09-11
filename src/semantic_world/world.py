@@ -2,10 +2,12 @@ from __future__ import absolute_import
 from __future__ import annotations
 
 import inspect
+import itertools
 import logging
 import os
 from copy import deepcopy
 from dataclasses import dataclass, field
+import tqdm
 from enum import IntEnum
 from functools import wraps, lru_cache
 from itertools import combinations_with_replacement
@@ -1906,16 +1908,45 @@ class World:
 
         :return: Set of body pairs that should have collisions disabled
         """
-        body_combinations = set(
-            combinations_with_replacement(self.bodies_with_enabled_collision, 2)
+        # body_combinations = set(
+        #     combinations_with_replacement(self.bodies_with_enabled_collision, 2)
+        # )
+
+        from semantic_world.world_description.world_modification import (
+            WorldModelModificationBlock,
+            AddBodyModification,
         )
-        for body_a, body_b in list(body_combinations):
+
+        modifications = WorldModelModificationBlock.from_modifications(
+            self._atomic_modifications[-1]
+        )
+
+        new_bodies = [
+            mod.body
+            for mod in modifications.modifications
+            if isinstance(mod, AddBodyModification)
+            and isinstance(mod.body, Body)
+            and mod.body.has_collision()
+            and mod.body._world is self
+        ]
+
+        new_bodies_with_themselves = itertools.combinations_with_replacement(
+            new_bodies, 2
+        )
+        new_boides_with_existing_bodies = itertools.product(
+            new_bodies, self.bodies_with_enabled_collision
+        )
+
+        for body_a, body_b in tqdm.tqdm(
+            itertools.chain(new_bodies_with_themselves, new_boides_with_existing_bodies)
+        ):
             if body_a == body_b:
                 self.add_disabled_collision_pair(body_a, body_b)
                 continue
-            if self.is_controlled_connection_in_chain(body_a, body_b):
+            elif self.is_controlled_connection_in_chain(body_a, body_b):
                 continue
-            self.add_disabled_collision_pair(body_a, body_b)
+            else:
+                self.add_disabled_collision_pair(body_a, body_b)
 
     @property
     def bodies_with_enabled_collision(self) -> List[Body]:

@@ -785,6 +785,8 @@ class Tracy(AbstractRobot):
             tool_frame=world.get_kinematic_structure_entity_by_name(
                 "l_gripper_tool_frame"
             ),
+            front_facing_orientation=Quaternion(0, 0, 0, 1),
+            front_facing_axis=Vector3(1, 0, 0),
             thumb=left_gripper_thumb,
             finger=left_gripper_finger,
             _world=world,
@@ -827,6 +829,8 @@ class Tracy(AbstractRobot):
             tool_frame=world.get_kinematic_structure_entity_by_name(
                 "r_gripper_tool_frame"
             ),
+            front_facing_orientation=Quaternion(0, 0, 0, 1),
+            front_facing_axis=Vector3(1, 0, 0),
             thumb=right_gripper_thumb,
             finger=right_gripper_finger,
             _world=world,

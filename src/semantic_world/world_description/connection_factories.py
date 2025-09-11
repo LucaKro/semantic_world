@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing_extensions import Self, Dict, Any, TypeVar
 
 from ormatic.dao import HasGeneric
@@ -10,6 +10,7 @@ from .connections import (
     PrismaticConnection,
     RevoluteConnection,
     Connection6DoF,
+    OmniDrive,
 )
 from .geometry import transformation_from_json, transformation_to_json
 from ..datastructures.prefixed_name import PrefixedName
@@ -45,7 +46,7 @@ class ConnectionFactory(HasGeneric[T], SubclassJSONSerializer, ABC):
         for factory in recursive_subclasses(cls):
             if factory.original_class() == connection.__class__:
                 return factory._from_connection(connection)
-        raise ValueError(f"Unknown connection type: {connection.name}")
+        raise ValueError(f"Unknown connection type: {type(connection)}")
 
     @classmethod
     @abstractmethod
@@ -250,3 +251,40 @@ class Connection6DoFFactory(ConnectionFactory[Connection6DoF]):
             qw_name=PrefixedName.from_json(data["qw"]),
             origin_expression=transformation_from_json(data["origin_expression"]),
         )
+
+
+@dataclass
+class OmniDriveFactory(ConnectionFactory[OmniDrive]):
+
+    x_name: PrefixedName
+    y_name: PrefixedName
+    z_name: PrefixedName
+    roll_name: PrefixedName
+    pitch_name: PrefixedName
+    yaw_name: PrefixedName
+    x_velocity_name: PrefixedName
+    y_velocity_name: PrefixedName
+    translation_velocity_limits: float = field(default=0.6)
+    rotation_velocity_limits: float = field(default=0.5)
+
+    @classmethod
+    def _from_connection(cls, connection: OmniDrive) -> Self:
+        return cls(
+            name=connection.name,
+            parent_name=connection.parent.name,
+            child_name=connection.child.name,
+            x_name=connection.x.name,
+            y_name=connection.y.name,
+            z_name=connection.z.name,
+            roll_name=connection.roll.name,
+            pitch_name=connection.pitch.name,
+            yaw_name=connection.yaw.name,
+            x_velocity_name=connection.x_vel.name,
+            y_velocity_name=connection.y_vel.name,
+            translation_velocity_limits=connection.translation_velocity_limits,
+            rotation_velocity_limits=connection.rotation_velocity_limits,
+            origin_expression=connection.origin_expression,
+        )
+
+    def create(self, world: World) -> Connection:
+        raise NotImplementedError

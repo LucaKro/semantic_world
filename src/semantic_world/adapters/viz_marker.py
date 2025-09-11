@@ -41,6 +41,7 @@ class VizMarkerPublisher:
         topic_name="/semworld/viz_marker",
         interval=0.1,
         reference_frame="map",
+        visuals_if_available=False,
     ):
         """
         The Publisher creates an Array of Visualization marker with a Marker for each body in the World and publishes
@@ -57,27 +58,19 @@ class VizMarkerPublisher:
         self.reference_frame = reference_frame
         self.world = world
         self.node = node
+        self.visuals_if_available = visuals_if_available
 
         self.pub = self.node.create_publisher(MarkerArray, topic_name, 10)
 
-        self.thread = threading.Thread(target=self._publish, name="VizMarkerPublisher")
-        self.kill_event = threading.Event()
-
-        self.thread.start()
-        atexit.register(self._stop_publishing)
+        self.world_calback = lambda: self._publish()
+        self.world.state_change_callbacks.append(self.world_calback)
 
     def _publish(self) -> None:
         """
         Constantly publishes the Marker Array. To the given topic name at a fixed rate.
         """
-        while not self.kill_event.is_set():
-            while self.world.world_is_being_modified:
-                time.sleep(self.interval)
-            marker_array = self._make_marker_array()
-            self.pub.publish(marker_array)
-            time.sleep(self.interval)
-            while self.world.world_is_being_modified:
-                time.sleep(self.interval)
+        marker_array = self._make_marker_array()
+        self.pub.publish(marker_array)
 
     def _make_marker_array(self) -> MarkerArray:
         """
@@ -89,7 +82,12 @@ class VizMarkerPublisher:
         """
         marker_array = MarkerArray()
         for body in self.world.bodies:
-            for i, collision in enumerate(body.collision):
+            shapes = (
+                body.visual
+                if self.visuals_if_available and body.visual and len(body.visual) > 0
+                else body.collision
+            )
+            for i, shape in enumerate(shapes):
                 msg = Marker()
                 msg.header.frame_id = self.reference_frame
                 msg.ns = body.name.name
@@ -98,60 +96,60 @@ class VizMarkerPublisher:
                 msg.pose = self.transform_to_pose(
                     (
                         self.world.compute_forward_kinematics(self.world.root, body)
-                        @ collision.origin
+                        @ shape.origin
                     ).to_np()
                 )
                 msg.color = (
                     ColorRGBA(
-                        r=float(collision.color.R),
-                        g=float(collision.color.G),
-                        b=float(collision.color.B),
-                        a=float(collision.color.A),
+                        r=float(shape.color.R),
+                        g=float(shape.color.G),
+                        b=float(shape.color.B),
+                        a=float(shape.color.A),
                     )
-                    if isinstance(collision, Primitive)
+                    if isinstance(shape, Primitive)
                     else ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0)
                 )
-                msg.lifetime = Duration(sec=1)
+                msg.lifetime = Duration(sec=100)
 
-                if isinstance(collision, FileMesh):
+                if isinstance(shape, FileMesh):
                     msg.type = Marker.MESH_RESOURCE
-                    msg.mesh_resource = "file://" + collision.filename
+                    msg.mesh_resource = "file://" + shape.filename
                     msg.scale = Vector3(
-                        x=float(collision.scale.x),
-                        y=float(collision.scale.y),
-                        z=float(collision.scale.z),
+                        x=float(shape.scale.x),
+                        y=float(shape.scale.y),
+                        z=float(shape.scale.z),
                     )
                     msg.mesh_use_embedded_materials = True
-                elif isinstance(collision, TriangleMesh):
-                    f = collision.file
+                elif isinstance(shape, TriangleMesh):
+                    f = shape.file
                     msg.type = Marker.MESH_RESOURCE
                     msg.mesh_resource = "file://" + f.name
                     msg.scale = Vector3(
-                        x=float(collision.scale.x),
-                        y=float(collision.scale.y),
-                        z=float(collision.scale.z),
+                        x=float(shape.scale.x),
+                        y=float(shape.scale.y),
+                        z=float(shape.scale.z),
                     )
                     msg.mesh_use_embedded_materials = True
-                elif isinstance(collision, Cylinder):
+                elif isinstance(shape, Cylinder):
                     msg.type = Marker.CYLINDER
                     msg.scale = Vector3(
-                        x=float(collision.width),
-                        y=float(collision.width),
-                        z=float(collision.height),
+                        x=float(shape.width),
+                        y=float(shape.width),
+                        z=float(shape.height),
                     )
-                elif isinstance(collision, Box):
+                elif isinstance(shape, Box):
                     msg.type = Marker.CUBE
                     msg.scale = Vector3(
-                        x=float(collision.scale.x),
-                        y=float(collision.scale.y),
-                        z=float(collision.scale.z),
+                        x=float(shape.scale.x),
+                        y=float(shape.scale.y),
+                        z=float(shape.scale.z),
                     )
-                elif isinstance(collision, Sphere):
+                elif isinstance(shape, Sphere):
                     msg.type = Marker.SPHERE
                     msg.scale = Vector3(
-                        x=float(collision.radius * 2),
-                        y=float(collision.radius * 2),
-                        z=float(collision.radius * 2),
+                        x=float(shape.radius * 2),
+                        y=float(shape.radius * 2),
+                        z=float(shape.radius * 2),
                     )
 
                 marker_array.markers.append(msg)
@@ -161,8 +159,15 @@ class VizMarkerPublisher:
         """
         Stops the publishing of the Visualization Marker update by setting the kill event and collecting the thread.
         """
-        self.kill_event.set()
-        self.thread.join()
+        self.world.state_change_callbacks.remove(self.world_calback)
+
+    def __del__(self) -> None:
+        try:
+            self._stop_publishing()
+        except Exception:
+            pass
+        finally:
+            super().__del__()
 
     @staticmethod
     def transform_to_pose(transform: np.ndarray) -> Pose:

@@ -2,18 +2,21 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List, Callable
+from typing import List, Callable, Type
 
 import numpy as np
 import trimesh
 from tqdm import tqdm
 
 from ..spatial_types import Point3
-from ..spatial_types.spatial_types import TransformationMatrix
+from ..spatial_types.derivatives import DerivativeMap
+from ..spatial_types.spatial_types import TransformationMatrix, Vector3
 from ..views.factories import ViewFactory
 from ..world import World
+from ..world_description.connections import ActiveConnection, FixedConnection
+from ..world_description.degree_of_freedom import DegreeOfFreedom
 from ..world_description.geometry import TriangleMesh, FileMesh, Mesh
-from ..world_description.world_entity import Body
+from ..world_description.world_entity import Body, Connection
 
 
 @dataclass
@@ -162,6 +165,7 @@ class BodyFactoryReplace(Step):
 
         return world
 
+
 @dataclass
 class FillCollisionWithVisual(Step):
     """
@@ -173,14 +177,20 @@ class FillCollisionWithVisual(Step):
             if len(body.collision) == 0 and len(body.visual) > 0:
                 for vis in body.visual:
                     if isinstance(vis, Mesh):
-                        body.collision.append(TriangleMesh(mesh=vis.mesh, scale=vis.scale, origin=vis.origin))
+                        body.collision.append(
+                            TriangleMesh(
+                                mesh=vis.mesh, scale=vis.scale, origin=vis.origin
+                            )
+                        )
         return world
+
 
 @dataclass
 class FilterOutBodiesByExactArea(Step):
     """
     Filters out bodies from the world whose total mesh area (collision or visual) matches a specified area.
     """
+
     area: float
     """
     The exact area to filter out bodies by.
@@ -202,6 +212,7 @@ class FilterOutBodiesByExactArea(Step):
                         if mesh.vertices.shape[0] > 0 and mesh.faces.shape[0] > 0:
                             total_area += mesh.area
             return total_area
+
         bodies = list(world.bodies)
 
         for body in tqdm(bodies, desc="Filtering bodies by exact area"):
@@ -209,11 +220,13 @@ class FilterOutBodiesByExactArea(Step):
                 world.remove_kinematic_structure_entity(body)
         return world
 
+
 @dataclass
 class FilterOutLeafBodiesByMinArea(Step):
     """
     Filters out bodies from the world whose total mesh area (collision or visual) is below a specified minimum area.
     """
+
     min_area: float
     """
     The minimum area threshold to filter out bodies by.
@@ -233,6 +246,7 @@ class FilterOutLeafBodiesByMinArea(Step):
                         mesh: trimesh.Trimesh = vis.mesh
                         total_area += mesh.area
             return total_area
+
         bodies = list(world.bodies)
 
         for body in tqdm(bodies, desc="Filtering bodies by min area"):
@@ -241,6 +255,7 @@ class FilterOutLeafBodiesByMinArea(Step):
             if body_area(body) < self.min_area:
                 world.remove_kinematic_structure_entity(body)
         return world
+
 
 @dataclass
 class RemoveVisualsIfCondition(Step):
@@ -254,4 +269,51 @@ class RemoveVisualsIfCondition(Step):
         for body in world.bodies:
             if self.condition(body):
                 body.visual.clear()
+        return world
+
+
+@dataclass
+class ReplaceFixedConnectionWithActiveConnectionIfCondition(Step):
+    """
+    Replaces the parent connection of bodies in the world that match a given condition with a new active connection.
+    """
+
+    condition: Callable[[Body], bool]
+    connection_type: Type[ActiveConnection]
+    """
+    A callable that takes no arguments and returns a new connection instance.
+    """
+
+    def _apply(self, world: World) -> World:
+        lower_limits = DerivativeMap[float]()
+        upper_limits = DerivativeMap[float]()
+
+        lower_limits.position = 0
+        upper_limits.position = np.pi / 1.5
+
+        for body in world.bodies:
+            if self.condition(body):
+                parent_connection = body.parent_connection
+                if parent_connection is None or not isinstance(
+                    parent_connection, FixedConnection
+                ):
+                    continue
+                dof = DegreeOfFreedom(
+                    name=parent_connection.name,
+                    lower_limits=lower_limits,
+                    upper_limits=upper_limits,
+                )
+                parent = parent_connection.parent
+                origin_expression = body.parent_connection.origin_expression
+                new_connection = self.connection_type(
+                    parent=parent,
+                    child=body,
+                    origin_expression=origin_expression,
+                    multiplier=1.0,
+                    offset=0.0,
+                    axis=Vector3.Z(),
+                    dof=dof,
+                )
+                world.remove_connection(parent_connection)
+                world.add_connection(new_connection)
         return world

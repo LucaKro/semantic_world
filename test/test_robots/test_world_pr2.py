@@ -366,6 +366,4 @@ def test_tracy_view(tracy_world):
     rclpy.init()
     node = rclpy.create_node("semantic_world")
 
-    viz = VizMarkerPublisher(world=tracy_world, node=node)
-    time.sleep(1000)
     ...
