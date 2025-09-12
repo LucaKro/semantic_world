@@ -16,6 +16,7 @@ from trimesh import Trimesh
 from typing_extensions import Optional, List, Iterator, TYPE_CHECKING, Dict, Any
 from typing_extensions import Self
 
+from pycram.ros import logwarn_once
 from ..datastructures.variables import SpatialVariables
 from ..spatial_types import TransformationMatrix, Point3
 from ..spatial_types.spatial_types import Expression
@@ -205,7 +206,8 @@ class Mesh(Shape, ABC):
         Returns the local bounding box of the mesh.
         The bounding box is axis-aligned and centered at the origin.
         """
-        return BoundingBox.from_mesh(self.mesh, self.origin)
+        mesh = self.mesh.copy().apply_scale(scaling=self.scale.x)
+        return BoundingBox.from_mesh(mesh, self.origin)
 
     def to_json(self) -> Dict[str, Any]:
         return {
@@ -535,9 +537,17 @@ class BoundingBox:
     @property
     def dimensions(self) -> List[float]:
         """
-        :return: The dimensions of the bounding box as a list [width, height, depth].
+        According to the IAI conventions, found at https://ai.uni-bremen.de/wiki/3dmodeling/items
+        1. z is height, according to how the object would stand on a table
+        2. x is depth, representing the long side of the object
+        3. y is width, representing the remaining dimension
         """
-        return [self.width, self.height, self.depth]
+        if self.width > self.depth:
+            logwarn_once(
+                "The width of the bounding box is greater than the depth. This means the object's"
+                " axis alignment is potentially going against IAI conventions."
+            )
+        return [self.depth, self.width, self.height]
 
     def bloat(
         self, x_amount: float = 0.0, y_amount: float = 0, z_amount: float = 0
