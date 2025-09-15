@@ -13,6 +13,7 @@ from ..spatial_types.derivatives import Derivatives, DerivativeMap
 from ..spatial_types.spatial_types import TransformationMatrix, Vector3
 from ..utils import (
     suppress_stdout_stderr,
+    load_urdf_silently,
     hacky_urdf_parser_fix,
     robot_name_from_urdf_string,
 )
@@ -132,7 +133,7 @@ class URDFParser:
 
     def __post_init__(self):
         self.urdf = hacky_urdf_parser_fix(self.urdf)
-        self.parsed = urdfpy.URDF.from_xml_string(self.urdf)
+        self.parsed = load_urdf_silently(self.urdf)
         if self.prefix is None:
             self.prefix = robot_name_from_urdf_string(self.urdf)
         if self.package_resolver is None:

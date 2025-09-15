@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import logging
 import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -16,7 +17,6 @@ from trimesh import Trimesh
 from typing_extensions import Optional, List, Iterator, TYPE_CHECKING, Dict, Any
 from typing_extensions import Self
 
-from pycram.ros import logwarn_once
 from ..datastructures.variables import SpatialVariables
 from ..spatial_types import TransformationMatrix, Point3
 from ..spatial_types.spatial_types import Expression
@@ -542,11 +542,6 @@ class BoundingBox:
         2. x is depth, representing the long side of the object
         3. y is width, representing the remaining dimension
         """
-        if self.width > self.depth:
-            logwarn_once(
-                "The width of the bounding box is greater than the depth. This means the object's"
-                " axis alignment is potentially going against IAI conventions."
-            )
         return [self.depth, self.width, self.height]
 
     def bloat(

@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import os
+import sys
 from contextlib import suppress
 from copy import deepcopy
 from functools import lru_cache, wraps
 from typing_extensions import Any, Tuple, Iterable
 from xml.etree import ElementTree as ET
-
 from sqlalchemy import Engine, inspect, text, MetaData
-
+from urdf_parser_py import urdf as urdfpy
 
 class IDGenerator:
     """
@@ -65,6 +65,36 @@ class suppress_stdout_stderr(object):
         for fd in self.null_fds + self.save_fds:
             os.close(fd)
 
+def load_urdf_silently(urdf_path_or_string: str, from_string_instead_of_file: bool = False) -> URDF:
+    """
+    Loads a URDF file or XML string with suppressed error messages.
+
+    This function temporarily overrides the `on_error` function in the `urdf_parser_py.xml_reflection.core` module
+    to suppress warnings and error messages during URDF parsing.
+
+    :param urdf_path_or_string: Path to the URDF file or XML string if `from_string_instead_of_file` is True.
+    :param from_string_instead_of_file: If True, interprets `urdf_path_or_string` as an XML string.
+            Defaults to False.
+
+    :returns: Parsed URDF object
+
+    :raise: ImportError, if the `urdf_parser_py.xml_reflection.core` module is not found.
+    """
+
+    urdf_core_module = sys.modules.get('urdf_parser_py.xml_reflection.core')
+    if urdf_core_module is None:
+        raise ImportError(
+            "Could not locate `urdf_parser_py.xml_reflection.core` module. Please check how the module changed since "
+            "'https://github.com/ros/urdf_parser_py/blob/3bcb9051e3bc6ebb8bff0bf8dd2c2281522b05d9/src/urdf_parser_py/xml_reflection/core.py#L33'")
+
+    original_on_error = getattr(urdf_core_module, 'on_error', None)
+    urdf_core_module.on_error = lambda message: None
+
+    try:
+        return urdfpy.URDF.from_xml_string(urdf_path_or_string)
+    finally:
+        if original_on_error is not None:
+            urdf_core_module.on_error = original_on_error
 
 def hacky_urdf_parser_fix(
     urdf: str, blacklist: Tuple[str] = ("transmission", "gazebo")

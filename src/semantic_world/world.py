@@ -1937,9 +1937,7 @@ class World:
             new_bodies, self.bodies_with_enabled_collision
         )
 
-        for body_a, body_b in tqdm.tqdm(
-            itertools.chain(new_bodies_with_themselves, new_boides_with_existing_bodies)
-        ):
+        for body_a, body_b in itertools.chain(new_bodies_with_themselves, new_boides_with_existing_bodies):
             if body_a == body_b:
                 self.add_disabled_collision_pair(body_a, body_b)
                 continue
