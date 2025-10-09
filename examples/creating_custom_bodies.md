@@ -16,6 +16,15 @@ kernelspec:
 The tutorial demonstrates the creation of a body and its visual and collision information
 In our kinematic structure, each entity needs to have a unique name. For this we can use a simple datastructure called `PrefixedName`. You always need to provide a name, but the prefix is optional.
 
+```{replite}
+:kernel: python
+:height: 360px
+
+# type here, edit me, then Shift+Enter
+name = "reader"
+f"Hello, {name}!"
+```
+
 ```{code-cell} ipython2
 from semantic_world.datastructures.prefixed_name import PrefixedName
 from semantic_world.spatial_types.spatial_types import TransformationMatrix, RotationMatrix
