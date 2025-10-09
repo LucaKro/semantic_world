@@ -26,6 +26,7 @@ f"Hello, {name}!"
 ```
 
 ```{code-cell} ipython2
+# test_comment
 from semantic_world.datastructures.prefixed_name import PrefixedName
 from semantic_world.spatial_types.spatial_types import TransformationMatrix, RotationMatrix
 from semantic_world.utils import get_semantic_world_directory_root
